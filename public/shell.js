@@ -38,6 +38,9 @@ window.NF=(()=>{
   const result=await api('state');revision=result.revision;pending=null;blocked=false;lastSaved=JSON.stringify(result.state);message='Sin cambios pendientes';
   root().hidden=true;view().hidden=false;window.NF_MODEL.load(result.state,user.role);lastSaved=JSON.stringify(window.NF_MODEL.read());showSaveStatus();document.querySelector('.nf-warning')?.remove();
   applyPermissions();
+  // Refresh the selected official exchange rate after loading shared state.
+  // The model skips this for read-only users or when automatic updates are off.
+  void window.NF_MODEL.refreshTC();
  }
  async function start(){try{const result=await api('me');user=result.user;if(user.mustChangePassword)passwordScreen();else await load();}catch(error){login(error.status===401?'':error.message);}}
  function showSaveStatus(){const t=document.getElementById('saveTxt'),d=document.getElementById('dot');if(t)t.textContent=message;if(d)d.style.background=blocked?'#a66b16':(saving||pending?'#ba912e':'#238565');}

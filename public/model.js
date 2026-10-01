@@ -522,7 +522,7 @@ function secControl(R){
         <tr><td class="l">Vigencia de precios <span class="unit">meses</span></td><td>${inp("control.vigenciaMeses")}</td></tr>
       </table>
       <div class="note" style="margin-top:12px">
-        <b>Tipo de cambio automático.</b> La app consulta cada vez que se abre el tipo de cambio oficial del <b>Banco de México</b> (SIE) y lo aplica sola, sin captura manual.
+        <b>Tipo de cambio automático.</b> Si lo activas, la app consulta al abrirse la serie elegida del <b>Banco de México</b> (SIE) y aplica el último dato disponible, sin captura manual.
         <table style="margin:8px 0">
           <tr><td class="l">Actualización automática</td><td class="l">
             <select class="f" data-path="control.tcAuto" data-type="bool">
@@ -2293,7 +2293,8 @@ async function autoTC(force=false){
     const j=await r.json();
     if(!j||(!j.fix&&!j.pagos)) return {ok:false,motivo:"Banxico no devolvió datos"};
     TC_API=j;
-    const pick=(S.control.tcSerie==="pagos"&&j.pagos)?j.pagos:(j.fix||j.pagos);
+    const pick=S.control.tcSerie==="pagos"?j.pagos:j.fix;
+    if(!pick) return {ok:false,motivo:"Banxico no devolvió la serie seleccionada"};
     if(!(pick&&isFinite(pick.valor)&&pick.valor>0)) return {ok:false,motivo:"Banxico devolvió un dato no válido"};
     const cambio=(+S.control.tcBase!==+pick.valor)||(S.control.tcFecha!==pick.fecha);
     if(cambio){
@@ -2310,6 +2311,7 @@ window.NF_MODEL={
  defaults: DEFAULTS,
  read:()=>S,
  load:(state,role)=>{S=clone(state);setRol(role);ensureEscenarios();migrateCentros();ensureClientes();sortInserts();renderAll();},
+ refreshTC:()=>autoTC(),
  render:()=>renderAll(),
  sections:SECTIONS,
  compute:()=>compute()
