@@ -1,267 +1,4 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Costeo FOAM Integral · North Foam</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-<style>
-:root{
-  box-sizing:border-box;
-  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
-  --shell:#14213b; --shell2:#1d2f4d; --shell3:#274063;
-  --workspace:#eceff1; --panel:#ffffff; --line:#dde3e8; --line2:#eef2f4;
-  --text:#182430; --muted:#5f6d7a; --muted2:#8a97a3;
-  --accent:#2b5488; --accent2:#193a63; --accentSoft:#e8eef6;
-  --input:#1f5fbf;      /* azul = captura */
-  --calc:#182430;       /* negro = fórmula */
-  --link:#0f7a49;       /* verde = liga entre hojas */
-  --pend:#9a6b00; --pendBg:#fbf3d7; --pendLine:#e6d38f;
-  --green:#1f9d55; --greenBg:#e6f5ec;
-  --amber:#c98a00; --amberBg:#fbf1d8;
-  --red:#cf3f52; --redBg:#fbe6e9;
-  --gray:#8a97a3; --grayBg:#eceff1;
-  --shadow:0 1px 2px rgba(16,30,42,.06),0 2px 8px rgba(16,30,42,.05);
-}
-:root:not([data-theme="light"]){ /* respeta modo oscuro del visor sin romper legibilidad de datos: mantenemos el workspace claro */ }
-*{box-sizing:inherit}
-html,body{height:100%}
-body{
-  margin:0; background:var(--shell);
-  font-family:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
-  color:var(--text); -webkit-font-smoothing:antialiased;
-}
-.mono{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;font-variant-numeric:tabular-nums}
-.app{display:flex;min-height:100%;}
-/* ---------- NAV ---------- */
-.nav{
-  width:210px;flex:0 0 210px;background:var(--shell);color:#c9d6e0;
-  display:flex;flex-direction:column;position:sticky;top:0;align-self:flex-start;height:100vh;
-  padding-top:env(safe-area-inset-top,0px);
-}
-.brand{padding:14px 14px 12px;border-bottom:1px solid rgba(255,255,255,.08)}
-.logo-wrap{background:#fff;border-radius:10px;padding:8px 12px;display:flex;justify-content:center;box-shadow:0 1px 3px rgba(0,0,0,.2)}
-.brand .logo{width:100%;max-width:172px;height:auto;display:block}
-.brand h1{font-size:12px;font-weight:600;margin:8px 0 0;letter-spacing:.3px;color:#e6eef4;text-align:center}
-.brand .sub{font-size:10.5px;color:#7d94a6;margin-top:2px;line-height:1.35;text-align:center}
-.navlist{list-style:none;margin:0;padding:8px 0;overflow-y:auto;flex:1}
-.navlist li{margin:0}
-.navbtn{width:100%;text-align:left;background:none;border:0;color:#a9bbc8;
-  font:inherit;font-size:13px;padding:8px 18px;cursor:pointer;display:flex;gap:9px;align-items:center;
-  border-left:3px solid transparent}
-.navbtn:hover{background:rgba(255,255,255,.05);color:#e6eef4}
-.navbtn.active{background:var(--shell2);color:#fff;border-left-color:var(--accent)}
-.navbtn .ix{font-size:11px;color:#5f7688;width:16px;flex:0 0 16px}
-.navbtn.active .ix{color:var(--accent)}
-.navfoot{padding:10px 14px;border-top:1px solid rgba(255,255,255,.08);font-size:11px;color:#6f8698}
-/* ---------- MAIN ---------- */
-.main{flex:1;min-width:0;background:var(--workspace);display:flex;flex-direction:column}
-.topbar{background:var(--panel);border-bottom:1px solid var(--line);
-  padding:10px 22px;display:flex;align-items:center;gap:14px;position:sticky;top:0;z-index:20;
-  padding-top:calc(10px + env(safe-area-inset-top,0px))}
-.topbar .save{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
-.dot{width:7px;height:7px;border-radius:50%;background:var(--green)}
-.actions{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
-.btn{font:inherit;font-size:12.5px;font-weight:500;border:1px solid var(--line);background:var(--panel);
-  color:var(--text);padding:7px 13px;border-radius:7px;cursor:pointer}
-.btn:hover{border-color:var(--accent);color:var(--accent2)}
-.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
-.btn.primary:hover{background:var(--accent2)}
-.btn.ghost{border-color:transparent;color:var(--muted)}
-/* KPI strip */
-.kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:1px;background:var(--line);
-  border-bottom:1px solid var(--line)}
-.kpi{background:var(--panel);padding:11px 16px}
-.kpi .lab{font-size:10.5px;color:var(--muted2);text-transform:none;letter-spacing:.2px;font-weight:500}
-.kpi .val{font-size:19px;font-weight:600;margin-top:2px;color:var(--text)}
-.kpi .val small{font-size:11px;color:var(--muted);font-weight:500}
-.kpi.state .val{font-size:14px}
-.chain{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:9px 22px;background:var(--shell2);
-  border-bottom:1px solid var(--line)}
-.chain .c{font-size:11px;color:#cfe0ea;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09);
-  padding:3px 9px;border-radius:20px;white-space:nowrap}
-.chain .c b{color:#fff;font-weight:600}
-.chain .ar{color:#5f7c90;font-size:12px}
-/* content */
-.content{padding:20px 22px 60px;overflow-x:auto}
-.sechead{display:flex;align-items:baseline;gap:12px;margin:2px 0 4px;flex-wrap:wrap}
-.sechead h2{font-size:17px;margin:0;font-weight:600}
-.sechead .src{font-size:11px;color:var(--muted2);font-family:"IBM Plex Mono",monospace}
-.lead{font-size:12.5px;color:var(--muted);max-width:80ch;line-height:1.5;margin:6px 0 16px}
-.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;align-items:start}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);overflow:hidden}
-.card > h3{font-size:13px;margin:0;padding:11px 15px;border-bottom:1px solid var(--line2);
-  background:#f8fafb;font-weight:600;display:flex;align-items:center;gap:8px}
-.card .body{padding:6px 4px}
-.card .pad{padding:12px 15px}
-/* tables */
-table{border-collapse:collapse;width:100%;font-size:12.5px}
-th,td{padding:6px 9px;text-align:right;border-bottom:1px solid var(--line2);white-space:nowrap}
-th{font-weight:600;color:var(--muted);font-size:11px;background:#f8fafb;position:sticky;top:0}
-td.l,th.l{text-align:left}
-td.l{white-space:normal;overflow-wrap:anywhere}
-tr:last-child td{border-bottom:0}
-tr.total td{font-weight:700;background:#f3f7f8;border-top:1px solid var(--line)}
-tr.sub td{background:#fbfcfd;font-weight:600;color:var(--accent2)}
-.val-calc{color:var(--calc);font-weight:500}
-.val-link{color:var(--link);font-weight:500}
-.val-pend{color:var(--pend);background:var(--pendBg);border-radius:4px;padding:1px 6px;font-size:11px;font-weight:600}
-/* inputs */
-input.f,select.f{font:inherit;font-family:"IBM Plex Mono",monospace;font-size:12.5px;color:var(--input);font-weight:600;
-  border:1px solid var(--line);background:#fbfdff;border-radius:5px;padding:4px 7px;width:90px;text-align:right;
-  -moz-appearance:textfield}
-input.f::-webkit-outer-spin-button,input.f::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
-input.f:focus,select.f:focus{outline:2px solid var(--accentSoft);border-color:var(--accent)}
-input.f.wide{width:260px;max-width:42vw;text-align:left}
-input.f.txt{text-align:left;color:var(--input)}
-select.f{width:auto;text-align:left;min-width:96px;cursor:pointer}
-input.f.pend{border-color:var(--pendLine);background:var(--pendBg)}
-.unit{color:var(--muted2);font-size:11px;margin-left:4px}
-.hint{font-size:11px;color:var(--muted2);font-style:italic}
-.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:11.5px;color:var(--muted);margin:14px 0 4px}
-.legend b{font-weight:600}
-.sw{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:middle;margin-right:4px}
-/* semáforo */
-.lz{display:inline-flex;align-items:center;gap:6px;font-weight:600;font-size:11.5px;padding:2px 8px;border-radius:20px;white-space:nowrap}
-.lz .b{width:8px;height:8px;border-radius:50%}
-.lz.v{color:#0f7a3d;background:var(--greenBg)} .lz.v .b{background:var(--green)}
-.lz.a{color:#8a6100;background:var(--amberBg)} .lz.a .b{background:var(--amber)}
-.lz.r{color:#a32636;background:var(--redBg)} .lz.r .b{background:var(--red)}
-.lz.g{color:#5f6d7a;background:var(--grayBg)} .lz.g .b{background:var(--gray)}
-.pill{font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600}
-.pill.ok{color:#0f7a3d;background:var(--greenBg)}
-.pill.rev{color:#a32636;background:var(--redBg)}
-.note{font-size:11.5px;color:var(--muted);background:#f8fafb;border:1px solid var(--line2);
-  border-radius:8px;padding:10px 13px;line-height:1.5}
-.tag{font-size:10px;font-weight:600;padding:1px 6px;border-radius:4px;background:var(--accentSoft);color:var(--accent2)}
-.rowbtn{border:1px dashed var(--line);background:none;color:var(--accent2);font:inherit;font-size:12px;
-  padding:6px 12px;border-radius:6px;cursor:pointer;margin:8px 4px}
-.rowbtn:hover{border-color:var(--accent);background:#f5fbfb}
-.del{border:0;background:none;color:var(--muted2);cursor:pointer;font-size:14px;padding:2px 6px}
-.del:hover{color:var(--red)}
-.filterbar{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
-.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--panel);box-shadow:var(--shadow)}
-.scroll table th:first-child,.scroll table td:first-child{position:sticky;left:0;background:#f8fafb;z-index:1}
-.scroll table td:first-child{background:var(--panel)}
-.scroll td,.scroll th{padding-top:4px;padding-bottom:4px;vertical-align:middle}
-.scroll td.l{white-space:nowrap}
-.scroll input.f,.scroll select.f{padding-top:3px;padding-bottom:3px}
-table[style*="table-layout:fixed"] th{white-space:normal;line-height:1.25;vertical-align:bottom}
-table[style*="table-layout:fixed"] td{white-space:normal;overflow-wrap:anywhere}
-/* Tablas de ancho fijo: importes siempre en una sola línea */
-table.fija{table-layout:fixed;width:100%}
-table.fija th{white-space:normal;line-height:1.25;vertical-align:bottom;font-size:10.5px;padding:5px 4px}
-table.fija td{white-space:nowrap;padding:5px 4px}
-table.fija td.l{white-space:normal;overflow-wrap:anywhere;padding-right:8px}
-table.fija td.l .hint{white-space:normal}
-/* Tabla compacta (Costeo integral): cabe sin scroll horizontal */
-.tabla-integral{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--panel);box-shadow:var(--shadow)}
-table.compact{font-size:11.5px;width:100%}
-table.compact th,table.compact td{padding:4px 5px;white-space:nowrap}
-table.compact th{white-space:normal;line-height:1.2;vertical-align:bottom;font-size:10.5px}
-table.compact input.f{width:56px;padding:3px 4px;font-size:11.5px}
-table.compact input.f.txt{width:74px}
-table.compact .lz{font-size:10.5px;padding:1px 6px;gap:4px}
-table.compact .del{padding:0 4px}
-table.compact .val-pend{font-size:10px;padding:1px 4px}
-td.sua-off{background:repeating-linear-gradient(45deg,#f6f8f9,#f6f8f9 4px,#eef2f4 4px,#eef2f4 8px)}
-/* ---------- PANEL EJECUTIVO ---------- */
-.exhead{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:4px}
-.exhead h2{font-size:19px;margin:0;font-weight:700}
-.exsel{display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);
-  border-radius:9px;padding:5px 8px 5px 12px;box-shadow:var(--shadow)}
-.exsel span{font-size:11px;color:var(--muted);font-weight:500}
-.exsel select{font:inherit;font-size:13px;font-weight:600;color:var(--accent2);border:0;background:none;cursor:pointer;padding:2px 4px}
-.seges{display:inline-flex;background:#e6ebee;border-radius:8px;padding:3px;gap:2px}
-.seges button{font:inherit;font-size:12px;font-weight:600;border:0;background:none;color:var(--muted);
-  padding:5px 12px;border-radius:6px;cursor:pointer}
-.seges button.on{background:var(--panel);color:var(--accent2);box-shadow:0 1px 2px rgba(0,0,0,.08)}
-.hero{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:12px;margin:14px 0 6px}
-.hcard{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;box-shadow:var(--shadow);position:relative;overflow:hidden}
-.hcard .k{font-size:11.5px;color:var(--muted);font-weight:500}
-.hcard .v{font-size:26px;font-weight:700;margin-top:4px;letter-spacing:-.4px}
-.hcard .v small{font-size:12px;color:var(--muted);font-weight:500;letter-spacing:0}
-.hcard .d{font-size:11px;margin-top:3px;color:var(--muted2)}
-.hcard .d.up{color:var(--green)} .hcard .d.down{color:var(--red)}
-.hcard.accent{background:linear-gradient(160deg,#2b5488,#16304f);border-color:transparent}
-.hcard.accent .k,.hcard.accent .d{color:#cdd9ec} .hcard.accent .v{color:#fff}
-.hcard .bar{position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--accent)}
-.hcard.g .bar{background:var(--gray)} .hcard.v .bar{background:var(--green)}
-.hcard.a .bar{background:var(--amber)} .hcard.r .bar{background:var(--red)}
-.exgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-top:16px;align-items:start}
-.exgrid .card.full{grid-column:1/-1}
-.chartbox{position:relative;height:270px;padding:8px 12px 12px}
-.chartbox.tall{height:320px}
-.insights{list-style:none;margin:0;padding:0}
-.insights li{display:flex;gap:10px;align-items:flex-start;padding:9px 15px;border-bottom:1px solid var(--line2);font-size:12.5px;line-height:1.45}
-.insights li:last-child{border-bottom:0}
-.insights .ic{width:22px;height:22px;border-radius:6px;flex:0 0 22px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;margin-top:1px}
-.ic.ok{background:var(--greenBg);color:#0f7a3d}
-.ic.warn{background:var(--amberBg);color:#8a6100}
-.ic.risk{background:var(--redBg);color:#a32636}
-.ic.info{background:var(--accentSoft);color:var(--accent2)}
-.insights b{font-weight:700}
-.ro input.f,.ro select.f,.ro textarea{pointer-events:none;background:var(--line2);color:var(--muted);border-color:var(--line2)}
-.ro input[type=checkbox]{pointer-events:none;opacity:.5}
-.ro .rowbtn,.ro .del,.ro .btn.danger{display:none}
-.pill.rol{background:var(--accentSoft);color:var(--accent2)}
-.modal-ov{position:fixed;inset:0;background:rgba(16,30,42,.45);display:flex;align-items:center;justify-content:center;z-index:1000;padding:20px}
-.modal{background:var(--panel);border-radius:14px;box-shadow:0 20px 50px rgba(0,0,0,.32);max-width:440px;width:100%;padding:22px;border:1px solid var(--line)}
-.modal-msg{font-size:14px;color:var(--text);line-height:1.5;margin-bottom:20px}
-.modal-actions{display:flex;gap:10px;justify-content:flex-end}
-.btn.danger{background:var(--red);border-color:var(--red);color:#fff}
-.btn.danger:hover{filter:brightness(.94)}
-@media (max-width:900px){.hero{grid-template-columns:repeat(2,1fr)}.exgrid{grid-template-columns:1fr}}
-@media (max-width:1180px){.kpis{grid-template-columns:repeat(3,1fr)}}
-@media (max-width:820px){
-  .app{flex-direction:column}
-  .nav{width:100%;flex:none;height:auto;position:static;flex-direction:column}
-  .navlist{display:flex;flex-wrap:wrap;padding:4px}
-  .navbtn{width:auto;border-left:0;border-bottom:3px solid transparent;padding:8px 12px}
-  .navbtn.active{border-left:0;border-bottom-color:var(--accent)}
-  .navfoot{display:none}
-  .kpis{grid-template-columns:repeat(2,1fr)}
-  .chain{display:none}
-}
-</style>
-</head>
-<body>
-<div class="app">
-  <nav class="nav">
-    <div class="brand">
-      <div class="logo-wrap"><img id="brandLogo" class="logo" src="data:image/png;base64,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j+644w5+85vflORyOo7D5ZdfPuBgjLb97ne/y+uvv87rr7/O7bffHs9mkcybNy8uR/pLSETqRHGx6BPFtorTn95NoJ9xxhl86lOf4nOf+xw333wzN998M5/5zGf47Gc/yyc+8QkymUy87amnnsoHPvCBkne3evVqvva1r8UxrOhao3cnhMBxHJYtW8a3v/3tktCS1poZM2bE72HTpk1xTPWiiy6KCTbbtnn99dfZvn07LS0tDB06lPXr1zNt2rQ41PT666/3LJAyCNB5nkd5eTn/9V//RTqdxvO8eKzdeuutNDQ0xM/8nVg88t2aHbXWlJeX85Of/ISKiorD0rMRkCZNmsS1115b4iMJIZg1axZf+MIX2Lx5c0mysmmabNu2jS9/+ct88YtfjAdilA521VVX8Xd/93eHZRQbGxsZPnw4w4YN41Of+hQXXXRRrDkNw+CVV17hxz/+8aAD+e82WVIc9yr+FCcZ/7mAXpzz2ftTrBHKysr4whe+UPKuDcPgjjvu4Nprr2XFihVxiCF6d21tbdx5551cddVV7N69uyTh4dhjj+W6666LzbqFCxeybt06stksF1xwAc899xynnHIKK1asoLOzE601L774IqeccgrLli3jhBNOYPjw4ezfv5/Zs2cfkckdvedzzjmHRx55hLvvvpt77rmHuXPncskll+C6bsn4/IualMUAOuecc/jWt77Fl770pUENVqUU/+f//B+eeuopNm/eHDuuWmtuu+027rvvPs4++2yGDx+OlJLt27ezdOlS9u/fX5KZ73kew4cP53vf+96gsg0izeG6Lo7j8B//8R+8+OKLcW6lYRjcfvvtXHfddRx//PFHzco0xZr+UOZT9L5vvPFG7r//fp544onY0rFtmzlz5vDUU09x9tlnM27cOGzbpqWlJSaoIk1V7B5897vfpaamBt/3aW5u5o9//CO+73PmmWcihGD//v1MnTqVu+++O/axli5dyhVXXAHA/v37ufjii7nnnnt4+OGH+eQnP8mxxx57RIFw3/f54Ac/2Ef7vZ0MlrcFuIF6kwx0wZ7n8fnPf55nnnmGefPm4ThOnIE/0KwyZswYfv3rX3PttdfS1NQUB7Wjsp2HH36433BAxKrlcjkqKyv5xS9+wcSJE2NToDdp0l8sL8p8OOecc/iHf/gH7rjjjriEo6WlhW984xvMmTOnxNk/0p4hf6vAjMzDX/ziF1xxxRWsWrUqnjAty6K9vT3ODumPbIt+LxQKfP/73+cjH/kIrutiWRbLly9n1apVlJeXc/nll/Pyyy8zadIkNmzYwK5du2Ifq6uri8WLF3PSSSexePFiLrvsMh555BE2b97M008/zbHHHjvo+4lA1VtJ9CbU3hMfrr+UpoH8MsuyuP322xk9enT8AAfaJwLd1KlTmTt3LhMnTozLbyJ6vJiijuqoIvIkl8sxfvx4Zs+ezeWXX96vo364a4/Mmq985Suxwy6lxLZtFixYwPz58+N6qUOBrb/6t3fr2b5b5+pv8Peu5zsSq0YpxahRo3j44Yc5//zzKRQKcRw0ipH2fneRdiwUCliWxX//93/zjW98I2auAaZMmcI999zD/PnzOfnkk1m1ahWTJk2KfbrIx4p8toaGBvbv3086neaRRx7h/vvvj4PkxeTPYMbwu7HNOwZclMwZOcDFybr9mRojRozgxz/+cezoR/vk8/k+M7+Uklwux9lnn83zzz/PN77xDUaOHBm/vGKKOjqW67oMHz6cr371qzz//PNceOGFcWJsb4n8kWj/4uuIzu95HuPHj+drX/sanufFVLjv+3zhC19g586dhzWRo0TlqN6rra3tiJ6t67olPtTh4kfRffi+T2tr6xGneSmlaGtrKzlOV1fXEWnv6H2PGTOGBQsWcOuttzJp0qR4nAz07jKZDNdeey1PPvkks2bNiifYaOCOHDmS6dOnc95557F48eK4B8qBAweor6+noaGB+vp6hgwZglKKpqYmTj75ZBYuXMiZZ57JlVdeyXHHHdfHNOztoxaPg8FK8XgqfneDmlwP17XL9/04rvbwww+XZHNceumlHHfccf2ykJFZ98ADD7Bjx46Ybr/ooos48cQT4xq24v2Kadfdu3fz1FNPsWzZMjZu3Bg7ydlslvHjx3Paaadx0UUXMWLEiHjw9EdBCyFYt24d8+fPj30+pRTTpk1j0qRJfQpG29vbuffee8nn8/H15fN5pk+fzuTJk/utYYv2nT17Nps3b47N2bq6Om644YYB4zbRud966624xi56oVdccQVTpkzpc1+Rln322Wd55ZVXYj/Itm2uv/76ODh9qBm3uMr+D3/4Q+yjFAoFTj31VM4///wBqxkOd0wImj89+eSTLFmyhA0bNtDR0RGn/jU2NnLiiSdywQUXcMopp/R579Fzicbdnj17uP766/nYxz7GqaeeyoYNG0o0cRQ7HDFiBM3NzXz/+9/npz/9KSeffHJ8D9H72bNnDw888EBJoD66jsH46NGEvmrVKhYuXBi7Nb7vM2PGDMaMGXPY7JbDAq53J62BBk1/LyCihvsD8UD5dhHr2HtQD/RAoocw0E2+nT6NA21/qOv+c7UMPBSLebiB/3bv8+34qsVA6W9C6m8MDdQOsbga+5e//CU333wzEyZM6JPpUlycqrWms7OTVatW8dWvfpXvfe97JfdwqOcy2Hd3uPaNgznOoFjK/jIHogcy0MmLo/S9/aVDvcxiLVT84ovjNcWxvcPZz72vPRqwh7r2KAheXPU7GP+mt1kR+VmHk959PKJzH2rf/np/DDZcUJxx09tELk4MfztESqTdi6+tuHynOBvpUOeJGMN9+/Zx2mmnxRXp/RFR0TgpLy/njDPOoLOzk7a2Nqqrq0sSwXuP4eJ3fCTP7kixcEQa7v0k75UWSeQv/86iSSHqRzpYQERASKVS75v2FX+1gEskkb/2yTlZkDGR9z1w/pYkAVwi72v5W3MhkuWqEkkkAVwiiSSASySRRBLAJZJIArhEEkkkAVwiiSSASySRo0b+f0XWngbTSaIQAAAAAElFTkSuQmCC" alt="North Foam"></div>
-      <h1>Costeo FOAM Integral</h1>
-      <div class="sub">Consola de costeo · v2</div>
-    </div>
-    <ul class="navlist" id="navlist"></ul>
-    <div class="navfoot">Captura en <b style="color:#5b9bff">azul</b> · cálculo en blanco.<br>Guardado en este navegador.</div>
-  </nav>
-  <div class="main">
-    <div class="topbar">
-      <div class="save"><span class="dot" id="dot"></span><span id="saveTxt">Guardado</span></div>
-      <div class="actions">
-        <span id="rolBadge" class="pill ok" style="align-self:center"></span>
-        <button class="btn" onclick="app.abrirAcceso()">Acceso</button>
-        <button class="btn primary" onclick="app.exportExcel()">Exportar a Excel</button>
-        <button class="btn" onclick="app.exportPDF()">Exportar a PDF</button>
-        <button class="btn" onclick="app.exportJSON()">Respaldar datos</button>
-        <button class="btn" onclick="document.getElementById('imp').click()">Importar</button>
-        <input type="file" id="imp" accept="application/json" style="display:none" onchange="app.importJSON(event)">
-        <button class="btn ghost" onclick="app.reset()">Restablecer</button>
-      </div>
-    </div>
-    <div class="kpis" id="kpis"></div>
-    <div class="chain" id="chain"></div>
-    <div class="content" id="content"></div>
-  </div>
-</div>
-<script>
+
 "use strict";
 /* ===================== DATOS BASE (fieles al Excel v2) ===================== */
 const CENTROS=["Corte/Pegado/Ensamble","Empaque y Almacén / Manejo","Administración"];
@@ -273,124 +10,9 @@ const TIPOS=["Directa","Administrativa","Comercial"];
 const PERIOD=["Semanal","Mensual"];
 const CLASES=["Directo","Indirecto variable","Indirecto fijo","Administrativo","Comercial","Logístico","Financiero"];
 const COMPONENTES=["Tapa / Base","Tapa","Base","Frente / Atrás","Lateral","Divisor","Refuerzo","Inserto interno","Placa suajada","Extra"];
-const TC_OFICIAL=16.9710, TC_OFICIAL_FECHA="11-sep-2026";
+const TC_OFICIAL=0, TC_OFICIAL_FECHA="Sin configurar";
 
-const DEFAULTS={
-  control:{escenario:"Base", tcBase:16.9710, margenObj:0.35, vigenciaMeses:3, tcFecha:null, tcAuto:true, tcSerie:"fix"},
-  escenarios:{ // factores por escenario — valores North Foam
-    tc:{Base:1,Conservador:1.05,"Estrés":1.135},
-    materiales:{Base:1,Conservador:1.05,"Estrés":1.15},
-    rendimiento:{Base:1,Conservador:0.95,"Estrés":0.88},
-    merma:{Base:1,Conservador:1.5,"Estrés":2.5},
-    volumen:{Base:1,Conservador:0.90,"Estrés":0.70},
-    utilizacion:{Base:1,Conservador:0.88,"Estrés":0.71},
-    energia:{Base:1,Conservador:1.08,"Estrés":1.20},
-    nomina:{Base:1,Conservador:1.05,"Estrés":1.10},
-    flete:{Base:1,Conservador:1.10,"Estrés":1.25},
-    tiempoCiclo:{Base:1,Conservador:1.10,"Estrés":1.25},
-    tiempoPrep:{Base:1,Conservador:1.15,"Estrés":1.35},
-    retrabajo:{Base:1,Conservador:1.5,"Estrés":2.5},
-    rechazo:{Base:1,Conservador:1.5,"Estrés":2.5},
-    mantenimiento:{Base:1,Conservador:1.15,"Estrés":1.40},
-    consumibles:{Base:1,Conservador:1.08,"Estrés":1.20},
-    garantias:{Base:1,Conservador:1.5,"Estrés":3.0},
-    precioVenta:{Base:1,Conservador:1.00,"Estrés":0.95},
-    financiero:{Base:1,Conservador:1.5,"Estrés":2.5},
-    deltaMargen:{Base:0,Conservador:0,"Estrés":0} // p.p.
-  },
-  capacidad:{dias:26,turnos:1,horas:9,comida:1,festivos:0,vacaciones:0,ausentismo:0,mantenimiento:0,setups:0,paros:0,horasUsadas:null},
-  moParams:{isn:0.018,infonavit:0.05,imss:0.24,aguinaldoDias:15,vacDias:12,primaVac:0.25,otros:0,semanas:4.333},
-  empleados:[
-    {puesto:"Encargado",tipo:"Directa",centro:"Corte/Pegado/Ensamble",period:"Semanal",sueldo:4000,n:1,uniformes:0,capacitacion:0,ausent:0},
-    {puesto:"Operador",tipo:"Directa",centro:"Corte/Pegado/Ensamble",period:"Semanal",sueldo:3700,n:1,uniformes:0,capacitacion:0,ausent:0},
-    {puesto:"Operador (adicional)",tipo:"Directa",centro:"Corte/Pegado/Ensamble",period:"Semanal",sueldo:3700,n:0,uniformes:0,capacitacion:0,ausent:0},
-    {puesto:"Contabilidad",tipo:"Administrativa",centro:"Administración",period:"Mensual",sueldo:4000,n:1,uniformes:0,capacitacion:0,ausent:0},
-    {puesto:"Compras",tipo:"Administrativa",centro:"Administración",period:"Mensual",sueldo:null,n:1,uniformes:0,capacitacion:0,ausent:0},
-    {puesto:"Ventas (sin comisión)",tipo:"Comercial",centro:"Administración",period:"Mensual",sueldo:null,n:1,uniformes:0,capacitacion:0,ausent:0}
-  ],
-  maquinaria:[],
-  indirectos:[
-    {c:"Renta de almacén / nave",cl:"Indirecto fijo",ce:"Administración",m:54000},
-    {c:"Predial / seguro inmueble",cl:"Indirecto fijo",ce:"Administración",m:null},
-    {c:"Mantenimiento de instalaciones",cl:"Indirecto fijo",ce:"Administración",m:null},
-    {c:"Internet",cl:"Indirecto fijo",ce:"Administración",m:570},
-    {c:"Agua",cl:"Indirecto variable",ce:"Administración",m:300},
-    {c:"Telefonía",cl:"Administrativo",ce:"Administración",m:null},
-    {c:"Consumibles (grupo)",cl:"Indirecto variable",ce:"Corte/Pegado/Ensamble",m:null},
-    {c:"Cuchillas",cl:"Indirecto variable",ce:"Corte/Pegado/Ensamble",m:null},
-    {c:"Hilo caliente",cl:"Indirecto variable",ce:"Corte/Pegado/Ensamble",m:null},
-    {c:"Adhesivos",cl:"Indirecto variable",ce:"Corte/Pegado/Ensamble",m:null},
-    {c:"Bolsas",cl:"Indirecto variable",ce:"Empaque y Almacén / Manejo",m:null},
-    {c:"Etiquetas",cl:"Indirecto variable",ce:"Empaque y Almacén / Manejo",m:null},
-    {c:"Cajas",cl:"Indirecto variable",ce:"Empaque y Almacén / Manejo",m:null},
-    {c:"Tarimas",cl:"Indirecto variable",ce:"Empaque y Almacén / Manejo",m:null},
-    {c:"EPP (área general)",cl:"Indirecto fijo",ce:"Administración",m:200},
-    {c:"Papelería",cl:"Administrativo",ce:"Administración",m:200},
-    {c:"Software",cl:"Administrativo",ce:"Administración",m:null},
-    {c:"Servicios profesionales",cl:"Administrativo",ce:"Administración",m:null},
-    {c:"Control de calidad",cl:"Indirecto variable",ce:"Corte/Pegado/Ensamble",m:null},
-    {c:"Almacenamiento",cl:"Logístico",ce:"Empaque y Almacén / Manejo",m:null},
-    {c:"Vehículos / combustible",cl:"Logístico",ce:"Empaque y Almacén / Manejo",m:null},
-    {c:"Flete al cliente",cl:"Logístico",ce:"Empaque y Almacén / Manejo",m:null},
-    {c:"Garantías / devoluciones",cl:"Comercial",ce:"Administración",m:null},
-    {c:"Gastos administrativos generales",cl:"Administrativo",ce:"Administración",m:null},
-    {c:"Contingencia comercial (configurable)",cl:"Comercial",ce:"Administración",m:null}
-  ],
-  energia:{precio:4.0,cargoFijo:100,demandaKW:0,cargoDemanda:0,reciboReal:null,
-    cargas:[
-      {n:"Equipo de corte (220 V)",kw:2.3,h:150},
-      {n:"Clima / aire (nave)",kw:10,h:200},
-      {n:"Iluminación de nave",kw:2,h:234},
-      {n:"Equipo de cómputo / oficina",kw:1,h:234}
-    ]},
-  financiero:{activar:true,diasInv:0,diasCliente:0,diasProveedor:0,tasaAnual:0,comision:0,difCambiario:0,reservaFX:0},
-  inserts:[
-    {id:"160143",q25:33.6109,q26:45.62,diseno:{
-      materiales:[{nombre:"PE BLANCO #1.2 - 1.5\""},{nombre:"PU GRIS #1.44 CONVO - 1.5\""},{nombre:""}],
-      piezas:[
-        {comp:"Tapa / Base",m1:18,m2:6,grosor:1.5,mat:1,cant:6,piezasManual:null},
-        {comp:"Lateral",m1:18,m2:15.375,grosor:1.5,mat:1,cant:4,piezasManual:null},
-        {comp:"Tapa / Base",m1:20.5,m2:20.5,grosor:1.5,mat:2,cant:2,piezasManual:null},
-        {comp:"Lateral",m1:18,m2:15.375,grosor:1.5,mat:2,cant:4,piezasManual:null}
-      ]}},
-    {id:"160145",q25:35.4563,q26:106.79},
-    {id:"160147",q25:9.0909,q26:19.21},
-    {id:"160153",q25:2.7232,q26:4.50},
-    {id:"160198",q25:5.4688,q26:11.15},
-    {id:"160203",q25:3.4575,q26:7.32},
-    {id:"160228",q25:22.7425,q26:51.98},
-    {id:"160229",q25:16.5306,q26:28.25}
-  ],
-  catalogo:[
-    {nombre:"PE BLANCO #1.2 - 1\"",grosor:1,ancho:48,largo:108,costo:13.12},
-    {nombre:"PE NEGRO #1.7 - 1\"",grosor:1,ancho:48,largo:108,costo:13.46},
-    {nombre:"PE BLANCO #1.2 - 1.5\"",grosor:1.5,ancho:48,largo:108,costo:19.6873},
-    {nombre:"PE NEGRO #1.7 - 1.5\"",grosor:1.5,ancho:48,largo:108,costo:20.1899},
-    {nombre:"PE BLANCO #1.2 - 2\"",grosor:2,ancho:48,largo:108,costo:26.25},
-    {nombre:"PE NEGRO #1.7 - 2\"",grosor:2,ancho:48,largo:108,costo:26.92},
-    {nombre:"PE BLANCO #1.2 - 2.5\"",grosor:2.5,ancho:48,largo:108,costo:32.81},
-    {nombre:"PE NEGRO #1.7 - 2.5\"",grosor:2.5,ancho:48,largo:108,costo:33.65},
-    {nombre:"PE BLANCO #1.2 - 3\"",grosor:3,ancho:48,largo:108,costo:39.37},
-    {nombre:"PE NEGRO #1.7 - 3\"",grosor:3,ancho:48,largo:108,costo:40.38},
-    {nombre:"PU GRIS #1.44 BUN - 45\"",grosor:45,ancho:83,largo:98,costo:1999.99},
-    {nombre:"PU GRIS #1.44 CONVO - 1.5\"",grosor:1.5,ancho:40,largo:96,costo:32.13}
-  ],
-  perInsert:{ /* id -> {mermaMat, margenObj(null=default), garantia} */ },
-  presupuesto:{otrosFijos:0,meta:null},
-  periodos:{}, periodoActivo:null, periodoVista:"catalogo", clientes:[],
-  seguridad:{pin:null},
-  ruta:[
-    {ins:"160143",op:10,proc:"Corte/Pegado/Ensamble",ce:"Corte/Pegado/Ensamble",prep:null,lote:1,minMO:null,minMaq:null,nop:1,retrab:0,merma:0},
-    {ins:"160145",op:10,proc:"Corte/Pegado/Ensamble",ce:"Corte/Pegado/Ensamble",prep:null,lote:1,minMO:null,minMaq:null,nop:1,retrab:0,merma:0},
-    {ins:"160147",op:10,proc:"Corte/Pegado/Ensamble",ce:"Corte/Pegado/Ensamble",prep:null,lote:1,minMO:null,minMaq:null,nop:1,retrab:0,merma:0},
-    {ins:"160153",op:10,proc:"Corte/Pegado/Ensamble",ce:"Corte/Pegado/Ensamble",prep:null,lote:1,minMO:null,minMaq:null,nop:1,retrab:0,merma:0},
-    {ins:"160198",op:10,proc:"Corte/Pegado/Ensamble",ce:"Corte/Pegado/Ensamble",prep:null,lote:1,minMO:null,minMaq:null,nop:1,retrab:0,merma:0},
-    {ins:"160203",op:10,proc:"Corte/Pegado/Ensamble",ce:"Corte/Pegado/Ensamble",prep:null,lote:1,minMO:null,minMaq:null,nop:1,retrab:0,merma:0},
-    {ins:"160228",op:10,proc:"Corte/Pegado/Ensamble",ce:"Corte/Pegado/Ensamble",prep:null,lote:1,minMO:null,minMaq:null,nop:1,retrab:0,merma:0},
-    {ins:"160229",op:10,proc:"Corte/Pegado/Ensamble",ce:"Corte/Pegado/Ensamble",prep:null,lote:1,minMO:null,minMaq:null,nop:1,retrab:0,merma:0}
-  ]
-};
-
+const DEFAULTS={"control":{"escenario":"Base","tcBase":null,"margenObj":0,"vigenciaMeses":0,"tcFecha":null,"tcAuto":false,"tcSerie":"fix"},"escenarios":{"tc":{"Base":1,"Conservador":1,"Estrés":1},"materiales":{"Base":1,"Conservador":1,"Estrés":1},"rendimiento":{"Base":1,"Conservador":1,"Estrés":1},"merma":{"Base":1,"Conservador":1,"Estrés":1},"volumen":{"Base":1,"Conservador":1,"Estrés":1},"utilizacion":{"Base":1,"Conservador":1,"Estrés":1},"energia":{"Base":1,"Conservador":1,"Estrés":1},"nomina":{"Base":1,"Conservador":1,"Estrés":1},"flete":{"Base":1,"Conservador":1,"Estrés":1},"tiempoCiclo":{"Base":1,"Conservador":1,"Estrés":1},"tiempoPrep":{"Base":1,"Conservador":1,"Estrés":1},"retrabajo":{"Base":1,"Conservador":1,"Estrés":1},"rechazo":{"Base":1,"Conservador":1,"Estrés":1},"mantenimiento":{"Base":1,"Conservador":1,"Estrés":1},"consumibles":{"Base":1,"Conservador":1,"Estrés":1},"garantias":{"Base":1,"Conservador":1,"Estrés":1},"precioVenta":{"Base":1,"Conservador":1,"Estrés":1},"financiero":{"Base":1,"Conservador":1,"Estrés":1},"deltaMargen":{"Base":0,"Conservador":0,"Estrés":0}},"capacidad":{"dias":null,"turnos":null,"horas":null,"comida":null,"festivos":null,"vacaciones":null,"ausentismo":null,"mantenimiento":null,"setups":null,"paros":null,"horasUsadas":null},"moParams":{"isn":null,"infonavit":null,"imss":null,"aguinaldoDias":null,"vacDias":null,"primaVac":null,"otros":null,"semanas":4.333333333333333},"empleados":[],"maquinaria":[],"indirectos":[],"energia":{"precio":null,"cargoFijo":null,"demandaKW":0,"cargoDemanda":0,"reciboReal":null,"cargas":[]},"financiero":{"activar":true,"diasInv":0,"diasCliente":0,"diasProveedor":0,"tasaAnual":0,"comision":0,"difCambiario":0,"reservaFX":0},"inserts":[],"catalogo":[],"perInsert":{},"presupuesto":{"otrosFijos":0,"meta":null},"periodos":{},"periodoActivo":null,"periodoVista":"catalogo","clientes":[],"ruta":[]};
 /* ===================== ESTADO ===================== */
 const KEY="northfoam_costeo_v2";
 let S=load();
@@ -399,14 +21,8 @@ migrateCentros();
 ensureClientes();
 sortInserts();
 function clone(o){return JSON.parse(JSON.stringify(o))}
-function load(){
-  try{const r=localStorage.getItem(KEY); if(r){const p=JSON.parse(r); return Object.assign(clone(DEFAULTS),p);}}catch(e){}
-  return clone(DEFAULTS);
-}
-function save(){
-  try{localStorage.setItem(KEY,JSON.stringify(S)); flashSaved();}
-  catch(e){document.getElementById('saveTxt').textContent="No se pudo guardar en este navegador";}
-}
+function load(){return clone(DEFAULTS);}
+function save(){ NF.queueSave(S); }
 let savedTimer;
 function flashSaved(){
   const t=document.getElementById('saveTxt'),d=document.getElementById('dot');
@@ -788,7 +404,7 @@ let current="dashboard";
 
 function renderNav(){
   document.getElementById("navlist").innerHTML=SECTIONS.map(s=>
-    `<li><button class="navbtn ${s.id===current?'active':''}" onclick="app.go('${s.id}')">
+    `<li><button class="navbtn ${s.id===current?'active':''}" data-click="go('${s.id}')">
       <span class="ix mono">${s.ix}</span>${s.name}</button></li>`).join("");
 }
 function renderRol(){
@@ -921,7 +537,7 @@ function secControl(R){
           <tr><td class="l">Último dato recibido</td><td class="mono val-calc">${TC_API?((TC_API.fix?('FIX '+fN(TC_API.fix.valor,4)+' · '+TC_API.fix.fecha):'')+(TC_API.pagos?('  |  Pagos '+fN(TC_API.pagos.valor,4)+' · '+TC_API.pagos.fecha):'')):'<span class="val-pend">sin conexión al servicio</span>'}</td></tr>
         </table>
         <div style="margin:8px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <button class="rowbtn" style="margin:0" onclick="app.refrescarTC()">Actualizar ahora</button>
+          <button class="rowbtn" style="margin:0" data-click="refrescarTC()">Actualizar ahora</button>
           <a class="btn" style="display:inline-block" href="https://www.banxico.org.mx/tipcamb/tipCamMIBOW.jsp" target="_blank" rel="noopener">Banxico ↗</a>
           <a class="btn" style="display:inline-block" href="https://dof.gob.mx/indicadores.php" target="_blank" rel="noopener">DOF ↗</a>
         </div>
@@ -932,7 +548,7 @@ function secControl(R){
     <div class="card"><h3>Palancas por escenario</h3><div class="body"><div class="scroll" style="border:0;box-shadow:none">
       <table><thead><tr><th class="l">Palanca</th><th>Base</th><th>Conservador</th><th>Estrés</th><th>Activo</th></tr></thead>
       <tbody>${lrows}</tbody></table></div>
-      <div style="padding:8px 12px"><button class="rowbtn" onclick="app.aplicarEscenarios()">Cargar valores sugeridos North Foam</button>
+      <div style="padding:8px 12px"><button class="rowbtn" data-click="aplicarEscenarios()">Restablecer factores neutrales</button>
       <span class="hint">19 palancas conectadas: TC, foam, rendimiento, merma, volumen, utilización, energía, nómina, flete, tiempo de ciclo y preparación, retrabajo, rechazo, mantenimiento, consumibles, garantías, precio de venta y costo financiero. Base = todo neutral; el selector estresa el modelo completo.</span></div></div></div>
   </div>`;
 }
@@ -983,7 +599,7 @@ function secMano(R){
     <td class="mono val-calc">${fMXN0(e.bruto)}</td>
     <td class="mono val-calc">${fMXN0(e.costo)}</td>
     <td class="mono val-calc">${e.tarifa==null?'—':fMXN(e.tarifa)+'/h'}</td>
-    <td><button class="del" onclick="app.delRow('empleados',${i})">✕</button></td></tr>`).join("");
+    <td><button class="del" data-click="delRow('empleados',${i})">✕</button></td></tr>`).join("");
   return head("Mano de obra","MANO_OBRA",
     "Sustituye el factor 1.35 por cargas patronales explícitas. El costo-empresa por hora = costo mensual ÷ horas productivas. Los % de ley son supuestos: confírmalos con tu contador.")
   +`<div class="filterbar">${periodoSelector()}<span class="hint">${escapeHtml(etiquetaPeriodo(S.periodoVista||"catalogo"))} — sueldos y número de personas por periodo; ${avisoPeriodo()}</span></div>
@@ -1004,7 +620,7 @@ function secMano(R){
     <table><thead><tr><th class="l">Puesto</th><th class="l">Tipo</th><th class="l">Centro</th><th class="l">Periodicidad</th>
       <th>Sueldo bruto</th><th>N°</th><th>Bruto mensual</th><th>Costo empresa</th><th>Tarifa $/h</th><th></th></tr></thead>
     <tbody>${erows}</tbody></table></div>
-    <button class="rowbtn" onclick="app.addEmp()">+ Agregar puesto</button></div></div>`;
+    <button class="rowbtn" data-click="addEmp()">+ Agregar puesto</button></div></div>`;
 }
 
 
@@ -1025,15 +641,15 @@ function secIndirectos(R){
     <td class="l">${centroSel(`indirectos.${i}.ce`)}</td>
     <td>${indMontoInput(i,it)}</td>
     <td class="mono val-calc" title="Monto del catálogo (base)">${it.m==null||it.m===""?'<span class="hint">—</span>':fMXN(num(it.m))}</td>
-    <td><button class="del" onclick="app.delRow('indirectos',${i})">✕</button></td></tr>`).join("");
+    <td><button class="del" data-click="delRow('indirectos',${i})">✕</button></td></tr>`).join("");
   return head("Indirectos y gastos","INDIRECTOS",
     "La clasificación decide a dónde va cada gasto: los fabriles entran a la tasa de manufactura; administración, comercial, logística y financiero se aplican en el costo integral. Los conceptos son fijos, pero <b>el monto se captura por mes</b>: elige el periodo y ajusta lo que cambió; lo que dejes en blanco toma el valor del catálogo.")
   +`<div class="filterbar">${periodoSelector()}
       ${badgePeriodo(S.periodoVista)}<span class="hint">Montos de <b>${escapeHtml(etiquetaPeriodo(S.periodoVista||"catalogo"))}</b>${(S.periodoVista||"catalogo")==="catalogo"?" — valores base del catálogo":(indirectoEditable()?" — captura el monto del mes; en blanco usa el del catálogo":" — promedio de los meses capturados")}</span>
-      ${indirectoEditable()&&(S.periodoVista||"catalogo")!=="catalogo"?`<button class="rowbtn" style="margin:0" onclick="app.indCopiarBase()">Copiar montos del catálogo</button><button class="rowbtn" style="margin:0" onclick="app.indLimpiarMes()">Limpiar mes</button>`:""}</div>
+      ${indirectoEditable()&&(S.periodoVista||"catalogo")!=="catalogo"?`<button class="rowbtn" style="margin:0" data-click="indCopiarBase()">Copiar montos del catálogo</button><button class="rowbtn" style="margin:0" data-click="indLimpiarMes()">Limpiar mes</button>`:""}</div>
     <div class="scroll"><table><thead><tr><th class="l">Concepto</th><th class="l">Clasificación</th><th class="l">Centro</th><th>$/mes${(S.periodoVista||"catalogo")==="catalogo"?"":" del periodo"}</th><th>Base<br>catálogo</th><th></th></tr></thead>
     <tbody>${rows}</tbody></table></div>
-    <button class="rowbtn" onclick="app.addInd()">+ Agregar concepto</button>
+    <button class="rowbtn" data-click="addInd()">+ Agregar concepto</button>
     <div class="grid2" style="margin-top:16px">
       <div class="card"><h3>Roll-ups por naturaleza</h3><div class="body"><table>
         <tr><td class="l">Indirecto variable (fabril)</td><td class="mono val-calc">${fMXN(R.indVar)}</td></tr>
@@ -1059,7 +675,7 @@ function secEnergia(R){
     <td>${inp(`energia.cargas.${i}.kw`)}</td>
     <td>${inp(`energia.cargas.${i}.h`)}</td>
     <td class="mono val-calc">${fN(num(c.kw)*num(c.h),0)}</td>
-    <td><button class="del" onclick="app.delRow('energia.cargas',${i})">✕</button></td></tr>`).join("");
+    <td><button class="del" data-click="delRow('energia.cargas',${i})">✕</button></td></tr>`).join("");
   return head("Energía y pool de manufactura","COSTEO_MANUFACTURA",
     "Tarifa comercial de baja tensión (PDBT): sólo cargo por consumo ($/kWh) + cargo fijo, sin cargo por demanda (eso aplica a media tensión con subestación). La base principal debe ser el recibo real de CFE; la estimación por potencia×horas es sólo validación. El pool reúne energía + MO directa + indirectos fabriles y define la tasa de planta.")
   +`<div class="filterbar">${periodoSelector()}<span class="hint">${escapeHtml(etiquetaPeriodo(S.periodoVista||"catalogo"))} — ${avisoPeriodo()}</span>${badgePeriodo(S.periodoVista)}</div>
@@ -1080,7 +696,7 @@ function secEnergia(R){
   <div class="card" style="margin-top:16px"><h3>Cargas eléctricas (validación)</h3><div class="body">
     <div class="scroll" style="border:0;box-shadow:none"><table><thead><tr><th class="l">Equipo / carga</th><th>Potencia kW</th><th>Horas/mes</th><th>kWh/mes</th><th></th></tr></thead>
     <tbody>${loads}</tbody></table></div>
-    <button class="rowbtn" onclick="app.addCarga()">+ Agregar carga</button></div></div>
+    <button class="rowbtn" data-click="addCarga()">+ Agregar carga</button></div></div>
   <div class="card" style="margin-top:16px"><h3>Pool de manufactura y tasa de planta</h3><div class="pad"><table>
     <tr><td class="l">Energía eléctrica</td><td class="mono val-link">${fMXN(R.energiaSubtotal)}</td></tr>
     <tr><td class="l">Mano de obra directa</td><td class="mono val-link">${fMXN(R.moDirecta)}</td></tr>
@@ -1129,19 +745,19 @@ function secRuta(R){
     <td>${inp(`ruta.${i}.merma`,{pct:true})}</td>
     <td class="mono val-calc">${r.totU==null?'—':fMXN(r.totU)}</td>
     <td class="l">${r.estado?`<span class="pill ${r.estado==='OK'?'ok':'rev'}">${r.estado}</span>`:''}</td>
-    <td><button class="del" onclick="app.delRow('ruta',${i})">✕</button></td></tr>`).join("");
+    <td><button class="del" data-click="delRow('ruta',${i})">✕</button></td></tr>`).join("");
   return head("Ruta de proceso","RUTA_PROCESO",
     "Captura los tiempos reales por operación. Prep/unidad = min prep ÷ tamaño de lote. MO/unidad = min MO × operadores × tarifa MO ÷ 60. Se ajusta por retrabajo y merma. <b>Sin tiempos, el inserto queda incompleto.</b>")
   +`<div class="filterbar">${clienteSelector("setCliRuta")}
     <div class="exsel" style="display:inline-flex"><span>Inserto</span>
-      <select onchange="app.setRutaFilter(this.value)">${insOpts.map(o=>`<option ${o===rutaFilter?'selected':''}>${escapeHtml(o)}</option>`).join("")}</select></div>
+      <select data-change="setRutaFilter(this.value)">${insOpts.map(o=>`<option ${o===rutaFilter?'selected':''}>${escapeHtml(o)}</option>`).join("")}</select></div>
     <span class="hint">${shown.length} operación(es)</span></div>
     <div class="tabla-integral"><table class="compact"><thead><tr>
     <th class="l">Inserto</th><th class="l">Cliente</th><th>Op</th><th class="l">Proceso</th><th class="l">Centro</th><th>Min prep/<br>lote</th><th>Lote</th>
     <th>Min MO/u</th><th>N°<br>op.</th><th>%<br>retrab.</th><th>%<br>merma</th><th>Costo<br>total/u</th><th class="l">Estado</th><th></th>
     </tr></thead><tbody>${rows}</tbody></table></div>
-    <button class="rowbtn" onclick="app.addRuta()">+ Agregar operación</button>
-    <button class="rowbtn" onclick="app.rutasEstandar()">Aplicar ruta estándar (Corte/Pegado/Ensamble) a todos</button>`;
+    <button class="rowbtn" data-click="addRuta()">+ Agregar operación</button>
+    <button class="rowbtn" data-click="rutasEstandar()">Aplicar ruta estándar (Corte/Pegado/Ensamble) a todos</button>`;
 }
 
 /* ---------- FINANCIERO ---------- */
@@ -1194,7 +810,7 @@ function secIntegral(R){
       <td class="mono val-calc">${it.utilidad==null?'—':fMXN(it.utilidad)}</td>
       <td class="mono" title="Markup ${it.markup==null?'—':fPct(it.markup)}">${it.margenReal==null?'—':fPct(it.margenReal)}</td>
       <td class="l"><span class="lz ${it.luz}"><span class="b"></span>${it.estado.replace(' · ','·').replace('COSTEO INCOMPLETO','Incompleto')}</span></td>
-      <td><button class="del" onclick="app.delInsert(${i})" title="Eliminar inserto">✕</button></td></tr>`;
+      <td><button class="del" data-click="delInsert(${i})" title="Eliminar inserto">✕</button></td></tr>`;
   }).join("");
   return head("Costeo integral por inserto","COSTEO_INTEGRAL",
     "Material y precio cliente se conservan de cada inserto (azul, editable). La conversión viene de la ruta con tarifas por centro. Admin/comercial/logística se aplican sobre la conversión; financiamiento y garantías sobre el costo previo. Margen sobre venta ≠ markup.")
@@ -1206,9 +822,9 @@ function secIntegral(R){
     <th>Utilidad<br>/pza</th><th>Margen<br>real</th><th class="l">Semáforo</th><th></th>
     </tr></thead><tbody>${rows}</tbody></table></div>
     <div style="margin:8px 0">
-      <button class="rowbtn" onclick="app.addInsert()">+ Agregar inserto</button>
-      <button class="rowbtn" onclick="app.addInserts(10)">+ Agregar 10</button>
-      <button class="rowbtn" onclick="app.addInserts(60)">+ Agregar 60</button>
+      <button class="rowbtn" data-click="addInsert()">+ Agregar inserto</button>
+      <button class="rowbtn" data-click="addInserts(10)">+ Agregar 10</button>
+      <button class="rowbtn" data-click="addInserts(60)">+ Agregar 60</button>
     </div>
     <div class="note" style="margin-top:6px">Captura el <b>número de inserto</b> (azul), su <b>material US$</b> y su <b>precio cliente US$</b> para darlo de alta. El % de merma y el margen objetivo son editables por inserto; si dejas el margen vacío usa el objetivo global (${fPct(num(S.control.margenObj)+f("deltaMargen"))}) del escenario actual. Para encender un inserto captura sus tiempos en <b>Ruta de proceso</b> (su número ya aparece en el menú de esa hoja). Si cambias el número de un inserto, su ruta y volumen se reasignan solos.</div>`;
 }
@@ -1341,7 +957,7 @@ function secDiseno(R){
     <td class="mono val-calc">${fPct(p.aprov)}</td>
     <td class="mono val-calc" title="${p.esSuaje?('Bruto '+fUSD(p.costoBruto)+' menos el suaje recuperado'):''}">${fUSD(p.costoUnit)}</td>
     <td class="mono val-calc" style="font-weight:700">${fUSD(p.costoInserto)}</td>
-    <td><button class="del" onclick="app.delPieza(${idx},${j})">✕</button></td></tr>`).join("");
+    <td><button class="del" data-click="delPieza(${idx},${j})">✕</button></td></tr>`).join("");
 
   const q26=num(ins.q26), matUSD=dz.totalUSD, util=q26-matUSD, matMXN=matUSD*R.tc;
   const catRows=(S.catalogo||[]).map((m,k)=>`<tr>
@@ -1350,26 +966,26 @@ function secDiseno(R){
     <td>${fracInput(`catalogo.${k}.ancho`,'in')}</td>
     <td>${fracInput(`catalogo.${k}.largo`,'in')}</td>
     <td>${inp(`catalogo.${k}.costo`)}</td>
-    <td><button class="del" onclick="app.delMaterial(${k})">✕</button></td></tr>`).join("");
+    <td><button class="del" data-click="delMaterial(${k})">✕</button></td></tr>`).join("");
 
   return head("Costeo de placas — optimización de corte","INSERTO (hoja individual del Excel)",
     "Aquí capturas lo que antes vivía en la hoja de cada inserto: las placas de foam (hasta 3 materiales), las piezas (base, laterales, tapa…) con sus medidas y cantidad, y el aprovechamiento por placa. El costo del material resultante alimenta automáticamente el <b>Costeo integral</b>. Las medidas aceptan <b>fracciones</b> (ej. <b>17 3/4</b>, <b>3/8</b>) o decimales. Piezas por placa = máximo entre las dos orientaciones; puedes forzar el valor real de tu corte optimizado.")
   +`<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
       <div class="exsel" style="display:inline-flex"><span>Cliente</span>
-        <select onchange="app.setClienteInserto(${idx},this.value)">
+        <select data-change="setClienteInserto(${idx},this.value)">
           <option value="">Sin cliente</option>
           ${(S.clientes||[]).map(c=>`<option ${clienteDe(ins)===c?'selected':''}>${escapeHtml(c)}</option>`).join("")}
         </select></div>
       <div style="display:flex;gap:6px;align-items:center">
-        <input id="newCliId" class="f txt" style="width:150px" placeholder="Nuevo cliente" onkeydown="if(event.key==='Enter'){event.preventDefault();app.addCliente();}">
-        <button class="btn" onclick="app.addCliente()">+ Cliente</button>
+        <input id="newCliId" class="f txt" style="width:150px" placeholder="Nuevo cliente" data-enter="addCliente()">
+        <button class="btn" data-click="addCliente()">+ Cliente</button>
       </div>
       <div class="exsel" style="display:inline-flex"><span>Inserto</span>
-        <select onchange="app.setDiseno(this.value)">${insOpts}</select></div>
-      <button class="btn" style="border-color:var(--red);color:var(--red)" onclick="app.delInsert(${idx})">Eliminar inserto</button>
+        <select data-change="setDiseno(this.value)">${insOpts}</select></div>
+      <button class="btn" style="border-color:var(--red);color:var(--red)" data-click="delInsert(${idx})">Eliminar inserto</button>
       <div style="display:flex;gap:6px;align-items:center">
-        <input id="newInsId" class="f txt" style="width:170px" placeholder="Número del nuevo inserto" onkeydown="if(event.key==='Enter'){event.preventDefault();app.addNamedInsert();}">
-        <button class="btn primary" onclick="app.addNamedInsert()">+ Crear inserto</button>
+        <input id="newInsId" class="f txt" style="width:170px" placeholder="Número del nuevo inserto" data-enter="addNamedInsert()">
+        <button class="btn primary" data-click="addNamedInsert()">+ Crear inserto</button>
       </div>
     </div>
     <div class="hint" style="margin:-8px 0 12px">Insertos de <b>${escapeHtml(clienteLabel(ins))}</b>: ${escapeHtml(S.inserts.filter(x=>clienteLabel(x)===clienteLabel(ins)).map(x=>String(x.id)).join(", ")||"—")}</div>
@@ -1385,7 +1001,7 @@ function secDiseno(R){
       <th>Pzas/placa<br>(o1/o2 · bloque)</th><th>Pzas/placa<br>(usar)</th><th>Aprov.</th><th>Costo<br>unit. $</th><th>Costo<br>inserto $</th><th></th></tr></thead>
       <tbody>${pRows||`<tr><td colspan="12" class="l" style="color:var(--muted2)">Sin piezas. Agrega la primera con el botón de abajo.</td></tr>`}</tbody></table></div>
       <div class="hint" style="padding:6px 12px">Las medidas aceptan fracciones (17 3/4). El <b>grosor</b> lo toma del material seleccionado. La excepción es el <b>BUN</b> (bloque de poliuretano), que se reconoce solo: ahí capturas el <b>grosor de cada pieza</b> en su renglón (el espesor del bloque es fijo del catálogo) y el sistema calcula cuántas capas salen. En <b>Placa suajada</b>, captura las medidas del hueco: esa área se descuenta del costo porque el material recuperado se reutiliza en otro inserto — no es merma. El <b>N° de suajes</b> es fijo (un suaje por pieza), así que equivale a la cantidad por inserto.</div>
-      <button class="rowbtn" onclick="app.addPieza(${idx})">+ Agregar pieza</button></div></div>
+      <button class="rowbtn" data-click="addPieza(${idx})">+ Agregar pieza</button></div></div>
 
     <div class="grid2" style="margin-top:16px">
       <div class="card"><h3>Resultado del inserto ${escapeHtml(String(ins.id))}</h3><div class="pad"><table>
@@ -1404,7 +1020,7 @@ function secDiseno(R){
     <div class="card" style="margin-top:16px"><h3>Catálogo de placas (materiales) <span class="hint" style="font-weight:400">— compartido por todos los insertos</span></h3><div class="body"><div class="scroll" style="border:0;box-shadow:none">
       <table><thead><tr><th class="l">Material</th><th>Grosor in</th><th>Ancho in</th><th>Largo in</th><th>Costo placa $</th><th></th></tr></thead>
       <tbody>${catRows}</tbody></table></div>
-      <button class="rowbtn" onclick="app.addMaterial()">+ Agregar material</button>
+      <button class="rowbtn" data-click="addMaterial()">+ Agregar material</button>
       <div class="hint" style="padding:6px 12px">Al actualizar el precio o medida de una placa aquí, se recalculan todos los insertos que la usan.</div></div></div>`;
 }
 
@@ -1533,7 +1149,7 @@ function secDiagrama(R){
     "Para cada pieza se dibuja la mejor orientación de corte en la lámina (la que rinde más piezas por placa), comparando las dos orientaciones. <b>Verde</b> = superficie aprovechada; <b>gris rayado</b> = merma (recorte). Cambia las medidas en Costeo de placas y el diagrama se actualiza.")
   +`<div class="filterbar">${clienteSelector("setCliDiagrama")}
       <div class="exsel" style="display:inline-flex"><span>Inserto</span>
-        <select onchange="app.setDiagrama(this.value)">${insOpts}</select></div></div>
+        <select data-change="setDiagrama(this.value)">${insOpts}</select></div></div>
     ${resumen}${blocks}${nestSec}`;
 }
 
@@ -1641,17 +1257,17 @@ function secMes(R){
     "Selecciona el mes y marca qué insertos se trabajan, con su volumen del periodo. Los costos unitarios vienen de <b>Costeo de placas</b> y <b>Ruta de proceso</b> (información fija del catálogo); aquí solo defines qué y cuánto se produce cada mes. Cada periodo se guarda por separado para consultarlo después.")
   +`<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
       <div class="exsel" style="display:inline-flex"><span>Periodo</span>
-        <input type="month" class="f" style="width:140px" value="${escapeHtml(k)}" onchange="app.setPeriodo(this.value)"></div>
+        <input type="month" class="f" style="width:140px" value="${escapeHtml(k)}" data-change="setPeriodo(this.value)"></div>
       <div class="exsel" style="display:inline-flex"><span>Cliente</span>
-        <select onchange="app.setCliFiltro(this.value)">${cliLista.map(c=>`<option ${c===cliFiltro?'selected':''}>${escapeHtml(c)}</option>`).join("")}</select></div>
+        <select data-change="setCliFiltro(this.value)">${cliLista.map(c=>`<option ${c===cliFiltro?'selected':''}>${escapeHtml(c)}</option>`).join("")}</select></div>
       ${badgePeriodo(k)}<span class="hint">${nombreMes(k)} · ${M.act.length} insertos · ${fN(M.piezas,0)} pzas${hist.length>1?(' · '+hist.length+' periodos guardados'):''}</span>
       <div style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap">
-        <button class="rowbtn" style="margin:0" onclick="app.mesTodos(true)">Marcar todos</button>
-        <button class="rowbtn" style="margin:0" onclick="app.mesTodos(false)">Desmarcar</button>
-        <button class="rowbtn" style="margin:0" onclick="app.mesCopiarVol()">Traer volúmenes del catálogo</button>
-        <button class="rowbtn" style="margin:0" onclick="app.mesAplicarPanel()">Aplicar al panel</button>
-        <button class="rowbtn" style="margin:0" onclick="app.mesCerrar()">${((S.periodos[k]||{}).estado==="cerrado")?"Reabrir mes":"Cerrar mes"}</button>
-        ${esAdmin()?`<button class="rowbtn" style="margin:0;border-color:var(--red);color:var(--red)" onclick="app.mesBorrar()">Borrar mes</button>`:""}
+        <button class="rowbtn" style="margin:0" data-click="mesTodos(true)">Marcar todos</button>
+        <button class="rowbtn" style="margin:0" data-click="mesTodos(false)">Desmarcar</button>
+        <button class="rowbtn" style="margin:0" data-click="mesCopiarVol()">Traer volúmenes del catálogo</button>
+        <button class="rowbtn" style="margin:0" data-click="mesAplicarPanel()">Aplicar al panel</button>
+        <button class="rowbtn" style="margin:0" data-click="mesCerrar()">${((S.periodos[k]||{}).estado==="cerrado")?"Reabrir mes":"Cerrar mes"}</button>
+        ${esAdmin()?`<button class="rowbtn" style="margin:0;border-color:var(--red);color:var(--red)" data-click="mesBorrar()">Borrar mes</button>`:""}
       </div>
     </div>
 
@@ -1792,7 +1408,7 @@ function secDashboard(R){
       <h2>Panel ejecutivo</h2>
       <div class="exsel"><span>Escenario</span>
         <div class="seges">
-          ${["Base","Conservador","Estrés"].map(s=>`<button class="${s===scn?'on':''}" onclick="app.setEscenario('${s}')">${s}</button>`).join("")}
+          ${["Base","Conservador","Estrés"].map(s=>`<button class="${s===scn?'on':''}" data-click="setEscenario('${s}')">${s}</button>`).join("")}
         </div>
       </div>
       ${periodoSelector()}
@@ -1818,7 +1434,7 @@ function secDashboard(R){
       <div class="card full"><h3>Margen por inserto vs. objetivo</h3><div style="overflow-x:auto"><div class="chartbox tall" style="min-width:${Math.max(560,R.integral.length*46)}px"><canvas id="ch_margin"></canvas></div></div></div>
       <div class="card">
         <h3>Sensibilidad por escenario
-          <select class="f" style="margin-left:auto" onchange="app.setSensMetric(this.value)">
+          <select class="f" style="margin-left:auto" data-change="setSensMetric(this.value)">
             <option value="tasa" ${sensMetric==='tasa'?'selected':''}>Tasa de planta $/h</option>
             <option value="pool" ${sensMetric==='pool'?'selected':''}>Pool $/mes</option>
             <option value="margen" ${sensMetric==='margen'?'selected':''}>Margen ponderado %</option>
@@ -2000,35 +1616,17 @@ function avisoPeriodo(){
 }
 const confirmPinClear=false;
 const ROLES={admin:"Administrador",captura:"Captura",consulta:"Consulta"};
-let ROL=(function(){ try{ return sessionStorage.getItem("nf_rol")||"admin"; }catch(e){ return "admin"; } })();
-function setRol(r){ ROL=r; try{ sessionStorage.setItem("nf_rol",r); }catch(e){} }
+let ROL="consulta";
+function setRol(r){ ROL=r; }
 function esAdmin(){ return ROL==="admin"; }
 function puedeEditar(){ return ROL==="admin"||ROL==="captura"; }
-function hashPin(t){ let h=5381; t=String(t); for(let i=0;i<t.length;i++){ h=((h<<5)+h+t.charCodeAt(i))>>>0; } return "h"+h.toString(36); }
-function pedirPin(msg,onOk){
-  const cfg=(S.seguridad||{}).pin;
-  if(!cfg){ onOk(); return; }
-  const ov=document.createElement("div"); ov.className="modal-ov";
-  const m=document.createElement("div"); m.className="modal";
-  m.innerHTML=`<div class="modal-msg">${msg}<br><br><input type="password" class="f" style="width:100%;text-align:left" placeholder="Contraseña" data-pinbox></div>
-    <div class="modal-actions"><button class="btn" type="button" data-no>Cancelar</button><button class="btn danger" type="button" data-yes>Confirmar</button></div>`;
-  ov.appendChild(m); document.body.appendChild(ov);
-  const box=m.querySelector("[data-pinbox]");
-  const close=()=>{ if(ov.parentNode) ov.parentNode.removeChild(ov); };
-  m.querySelector("[data-no]").onclick=close;
-  m.querySelector("[data-yes]").onclick=()=>{
-    if(hashPin(box.value)===cfg){ close(); onOk(); }
-    else { box.style.borderColor="var(--red)"; box.value=""; box.placeholder="Contraseña incorrecta"; }
-  };
-  box.onkeydown=ev=>{ if(ev.key==="Enter") m.querySelector("[data-yes]").click(); };
-  setTimeout(()=>{try{box.focus();}catch(e){}},50);
-}
+function pedirPin(msg,onOk){ if(esAdmin()) onOk(); }
 function clienteSelector(fn){
   const cur=cliVista||"(todos)";
   const lista=["(todos)"].concat([...new Set(S.inserts.map(i=>clienteLabel(i)))].sort());
   if(!lista.includes(cur)) cliVista="(todos)";
   return `<div class="exsel" style="display:inline-flex"><span>Cliente</span>
-    <select onchange="app.${fn||'setCliVista'}(this.value)">
+    <select data-change="${fn||'setCliVista'}(this.value)">
       ${lista.map(c=>`<option ${c===cliVista?'selected':''}>${escapeHtml(c)}</option>`).join("")}
     </select></div>`;
 }
@@ -2036,7 +1634,7 @@ function pasaCliente(ins){ return cliVista==="(todos)"||clienteLabel(ins)===cliV
 function periodoSelector(){
   const cur=S.periodoVista||"catalogo";
   return `<div class="exsel" style="display:inline-flex"><span>Periodo</span>
-    <select onchange="app.setPeriodoVista(this.value)">
+    <select data-change="setPeriodoVista(this.value)">
       ${listaPeriodos().map(o=>`<option value="${escapeHtml(o.v)}" ${cur===o.v?'selected':''}>${escapeHtml(o.t)}</option>`).join("")}
     </select></div>`;
 }
@@ -2172,6 +1770,7 @@ function renderSection(id){
   const cont=document.getElementById("content");
   cont.className="content"+(puedeEditar()?"":" ro");
   cont.innerHTML=(map[id]||secDashboard)(R);
+  NF.applyPermissions();
   if(id==="dashboard") buildDashboardCharts(R);
   if(id==="presupuesto") buildPresupuestoCharts(R);
 }
@@ -2183,7 +1782,7 @@ const r4=x=>x==null?null:Math.round(x*10000)/10000;
 function toast(msg){
   const t=document.getElementById('saveTxt'),d=document.getElementById('dot');
   t.textContent=msg; d.style.background="var(--accent)";
-  clearTimeout(toast._t); toast._t=setTimeout(()=>{t.textContent="Guardado";d.style.background="var(--green)";},3500);
+  clearTimeout(toast._t); toast._t=setTimeout(()=>NF.showSaveStatus(),3500);
 }
 function askConfirm(msg,onYes,yesLabel){
   const ov=document.createElement("div"); ov.className="modal-ov";
@@ -2432,7 +2031,7 @@ const app={
     askConfirm("¿Limpiar los montos capturados de <b>"+etiquetaPeriodo(k)+"</b>? Volverán a tomar el valor del catálogo.",()=>{
       const P=ensurePeriodo(k); P.indirectos={}; save(); renderKPIs(); renderChain(); renderSection("indirectos"); toast("Montos del mes limpiados");
     },"Limpiar"); },
-  mesCerrar(){ const k=periodoKey(); const P=ensurePeriodo(k);
+  mesCerrar(){ if(!esAdmin()) return; const k=periodoKey(); const P=ensurePeriodo(k);
     P.estado=(P.estado==="cerrado")?null:"cerrado"; save(); renderSection("mes");
     toast(P.estado==="cerrado"?(nombreMes(k)+" cerrado"):(nombreMes(k)+" reabierto")); },
   mesBorrar(){ const k=periodoKey();
@@ -2447,38 +2046,7 @@ const app={
   setCliRuta(v){ cliVista=v; rutaFilter="(todos)"; renderSection("ruta"); },
   setCliVista(v){ cliVista=v; renderSection(current); },
   setCliDiagrama(v){ cliVista=v; const l=S.inserts.filter(pasaCliente); if(l.length&&!l.some(x=>String(x.id)===String(disenoSel))) disenoSel=String(l[0].id); renderSection("diagrama"); },
-  abrirAcceso(){
-    const tienePin=!!(S.seguridad||{}).pin;
-    const ov=document.createElement("div"); ov.className="modal-ov";
-    const m=document.createElement("div"); m.className="modal";
-    m.innerHTML=`<div class="modal-msg"><b>Acceso y permisos</b><br><br>
-      Perfil actual: <b>${ROLES[ROL]}</b><br><br>
-      <select class="f" style="width:100%;text-align:left" data-rolsel>
-        <option value="admin" ${ROL==="admin"?"selected":""}>Administrador — captura, borra periodos y define la contraseña</option>
-        <option value="captura" ${ROL==="captura"?"selected":""}>Captura — puede capturar datos, no borrar periodos</option>
-        <option value="consulta" ${ROL==="consulta"?"selected":""}>Consulta — solo lectura</option>
-      </select>
-      <div style="margin-top:12px;font-size:12px;color:var(--muted)">
-        ${tienePin?"Se pedirá la contraseña para entrar como Administrador o Captura.":"Sin contraseña definida. Como Administrador puedes definirla abajo."}
-      </div>
-      ${esAdmin()?`<div style="margin-top:12px"><input type="password" class="f" style="width:100%;text-align:left" placeholder="${tienePin?'Nueva contraseña (vacío = quitar)':'Definir contraseña'}" data-newpin></div>`:""}
-      </div>
-      <div class="modal-actions"><button class="btn" type="button" data-no>Cerrar</button><button class="btn primary" type="button" data-yes>Aplicar</button></div>`;
-    ov.appendChild(m); document.body.appendChild(ov);
-    const close=()=>{ if(ov.parentNode) ov.parentNode.removeChild(ov); };
-    m.querySelector("[data-no]").onclick=close;
-    m.querySelector("[data-yes]").onclick=()=>{
-      const nuevo=m.querySelector("[data-rolsel]").value;
-      const np=m.querySelector("[data-newpin]");
-      if(np&&esAdmin()){
-        if(np.value===""){ if(tienePin&&confirmPinClear===false){} }
-        if(np.value!==""){ S.seguridad=S.seguridad||{}; S.seguridad.pin=hashPin(np.value); save(); }
-      }
-      const aplicar=()=>{ setRol(nuevo); close(); renderAll(); toast("Perfil: "+ROLES[nuevo]); };
-      if((nuevo==="admin"||nuevo==="captura")&&(S.seguridad||{}).pin&&!puedeEditar()){ close(); pedirPin("Escribe la contraseña para entrar como <b>"+ROLES[nuevo]+"</b>.",aplicar); }
-      else aplicar();
-    };
-  },
+  abrirAcceso(){ NF.openAccount(); },
   setPeriodoVista(v){ S.periodoVista=v||"catalogo"; save(); renderKPIs(); renderChain(); renderSection(current); toast("Consultando "+etiquetaPeriodo(S.periodoVista)); },
   setPresuPeriodo(v){ S.periodoVista=v||"catalogo"; save(); renderKPIs(); renderChain(); renderSection("presupuesto"); },
   setPeriodo(v){ if(!v) return; S.periodoActivo=v; ensurePeriodo(v); save(); renderSection("mes"); },
@@ -2511,12 +2079,13 @@ const app={
   addMaterial(){ if(!S.catalogo)S.catalogo=[]; S.catalogo.push({nombre:"NUEVO material",grosor:null,ancho:null,largo:null,costo:null}); save(); renderSection("placas"); },
   delMaterial(k){ S.catalogo.splice(k,1); save(); renderKPIs(); renderChain(); renderSection("placas"); },
   setEscenario(s){S.control.escenario=s;save();renderKPIs();renderChain();renderSection(current);},
-  aplicarEscenarios(){ S.escenarios=clone(DEFAULTS.escenarios); save(); renderKPIs(); renderChain(); renderSection("control"); toast("Escenarios de North Foam aplicados"); },
-  refrescarTC(){ toast("Consultando Banxico…");
+  aplicarEscenarios(){ S.escenarios=clone(DEFAULTS.escenarios); save(); renderKPIs(); renderChain(); renderSection("control"); toast("Factores neutrales aplicados"); },
+  refrescarTC(){
+    toast("Consultando Banxico…");
     autoTC(true).then(res=>{
       if(current==="control") renderSection("control");
-      if(res&&res.ok) toast(res.cambio?("TC actualizado: $"+fN(res.valor,4)+" ("+res.fecha+")"):("TC ya estaba al día: $"+fN(res.valor,4)));
-      else toast("No se actualizó — "+((res&&res.motivo)||"error desconocido"));
+      if(res?.ok) toast(res.cambio?"TC actualizado: $"+fN(res.valor,4)+" ("+res.fecha+")":"TC ya estaba al día: $"+fN(res.valor,4));
+      else toast("No se actualizó — "+(res?.motivo||"error desconocido"));
     });
   },
   setTcOficial(v){ S.control.tcBase=v; S.control.tcFecha=new Date().toLocaleDateString("es-MX"); save(); renderKPIs(); renderChain(); renderSection("control"); toast("TC base actualizado a "+v); },
@@ -2525,20 +2094,20 @@ const app={
   addEmp(){S.empleados.push({puesto:"Nuevo puesto",tipo:"Directa",centro:"Corte",period:"Semanal",sueldo:null,n:1,uniformes:0,capacitacion:0,ausent:0});save();renderSection("mano");},
   addInd(){S.indirectos.push({c:"Nuevo concepto",cl:"Indirecto fijo",ce:"Otros",m:null});save();renderSection("indirectos");},
   addCarga(){S.energia.cargas.push({n:"Nueva carga",kw:0,h:0});save();renderSection("energia");},
-  addRuta(){S.ruta.push({ins:S.inserts[0].id,op:20,proc:"Corte",ce:"Corte/Pegado/Ensamble",prep:null,lote:1,minMO:null,minMaq:null,nop:1,retrab:0,merma:0});save();renderSection("ruta");},
+  addRuta(){if(!S.inserts.length){toast("Primero agrega un inserto en Costeo integral");return;} S.ruta.push({ins:S.inserts[0].id,op:20,proc:"Corte",ce:"Corte/Pegado/Ensamble",prep:null,lote:1,minMO:null,minMaq:null,nop:1,retrab:0,merma:0});save();renderSection("ruta");},
   delRow(path,i){
     const parts=path.split(".");let o=S;for(const p of parts)o=o[p];
     o.splice(i,1);save();renderKPIs();renderChain();renderSection(current);
   },
-  reset(){ askConfirm("¿Restablecer todos los datos a los valores originales del modelo? Se perderá lo capturado en este navegador.", ()=>{ S=clone(DEFAULTS); save(); renderAll(); }, "Restablecer"); },
+  reset(){ if(!esAdmin()) return; askConfirm("¿Restablecer todos los datos a los valores originales del modelo? Se eliminarán los datos compartidos. Esta acción solo está disponible para el administrador.", ()=>{ S=clone(DEFAULTS); save(); renderAll(); }, "Restablecer"); },
   exportJSON(){
     saveFile("costeo-foam-datos.json", JSON.stringify(S,null,2), "application/json");
   },
-  exportExcel(){
+  async exportExcel(){
     if(typeof XLSX==="undefined"){alert("No se pudo cargar la librería de Excel. Revisa tu conexión e inténtalo de nuevo.");return;}
     try{
       const wb=buildWorkbook();
-      const ab=XLSX.write(wb,{bookType:"xlsx",type:"array"});
+      const ab=await XLSX.write(wb,{bookType:"xlsx",type:"array"});
       const blob=new Blob([ab],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
       saveFile("Costeo_FOAM_Integral.xlsx", blob);
     }catch(e){console.error(e);alert("No se pudo generar el Excel.");}
@@ -2695,9 +2264,10 @@ const app={
     }catch(e){console.error(e);alert("No se pudo generar el PDF.");}
   },
   importJSON(ev){
+    if(!esAdmin()) return;
     const file=ev.target.files[0];if(!file)return;
     const r=new FileReader();
-    r.onload=()=>{try{const p=JSON.parse(r.result);S=Object.assign(clone(DEFAULTS),p);save();renderAll();}
+    r.onload=()=>{try{const p=JSON.parse(r.result);NF.importState(p);}
       catch(e){alert("No se pudo leer el archivo. ¿Es un respaldo válido?");}};
     r.readAsText(file);ev.target.value="";
   }
@@ -2710,34 +2280,38 @@ document.addEventListener("change",e=>{
 
 /* ===== Tipo de cambio automático (Banxico vía /api/tc) ===== */
 let TC_API=null;
-async function autoTC(force){
-  if(!force && S.control.tcAuto===false) return {ok:false,motivo:"desactivado"};
+async function autoTC(force=false){
+  if(!puedeEditar()) return {ok:false,motivo:"Tu perfil no permite cambiar el tipo de cambio"};
+  if(!force&&S.control.tcAuto===false) return {ok:false,motivo:"actualización automática desactivada"};
   try{
     const r=await fetch("/api/tc",{cache:"no-store"});
     if(!r.ok){
-      let det=""; try{ const je=await r.json(); det=je&&je.error?je.error:""; }catch(e){}
-      return {ok:false,motivo:(det==="falta_token")?"Falta configurar BMX_TOKEN en Vercel":("El servicio respondió "+r.status)};
+      let motivo="El servicio respondió "+r.status;
+      try{const body=await r.json();if(body?.error) motivo=body.error;}catch(e){}
+      return {ok:false,motivo};
     }
     const j=await r.json();
     if(!j||(!j.fix&&!j.pagos)) return {ok:false,motivo:"Banxico no devolvió datos"};
     TC_API=j;
     const pick=(S.control.tcSerie==="pagos"&&j.pagos)?j.pagos:(j.fix||j.pagos);
-    if(!(pick&&isFinite(pick.valor)&&pick.valor>0)) return {ok:false,motivo:"Dato no válido"};
+    if(!(pick&&isFinite(pick.valor)&&pick.valor>0)) return {ok:false,motivo:"Banxico devolvió un dato no válido"};
     const cambio=(+S.control.tcBase!==+pick.valor)||(S.control.tcFecha!==pick.fecha);
-    S.control.tcBase=pick.valor; S.control.tcFecha=pick.fecha;
-    save(); renderKPIs(); renderChain();
-    if(current==="dashboard"||current==="control"||current==="presupuesto") renderSection(current);
+    if(cambio){
+      S.control.tcBase=pick.valor; S.control.tcFecha=pick.fecha;
+      save(); renderKPIs(); renderChain();
+      if(current==="dashboard"||current==="control"||current==="presupuesto") renderSection(current);
+    }
     return {ok:true,cambio,valor:pick.valor,fecha:pick.fecha};
-  }catch(e){
-    return {ok:false,motivo:(location.protocol==="file:"||location.hostname.indexOf("claude")>=0)
-      ? "El servicio de Banxico solo funciona en el sitio publicado (costeo-foam.vercel.app)"
-      : "No se pudo conectar al servicio"};
-  }
+  }catch(e){return {ok:false,motivo:"No se pudo conectar con Banxico"};}
 }
-renderAll();
-autoTC().then(res=>{ if(res&&res.ok&&res.cambio) toast("TC actualizado: $"+fN(res.valor,4)+" ("+res.fecha+")"); });
-// Si Chart.js aún no cargaba en el primer render, reconstruye el panel al terminar de cargar.
-window.addEventListener("load",()=>{ if(current==="dashboard"||current==="presupuesto") renderSection(current); });
-</script>
-</body>
-</html>
+
+window.app=app;
+window.NF_MODEL={
+ defaults: DEFAULTS,
+ read:()=>S,
+ load:(state,role)=>{S=clone(state);setRol(role);ensureEscenarios();migrateCentros();ensureClientes();sortInserts();renderAll();},
+ render:()=>renderAll(),
+ sections:SECTIONS,
+ compute:()=>compute()
+};
+NF.start();

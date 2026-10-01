@@ -1,0 +1,38 @@
+{
+  "name": "northfoam-costeo",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "24.x"
+  },
+  "scripts": {
+    "build": "node scripts/build.js",
+    "setup:deploy": "node scripts/setup-deploy.js",
+    "start": "node --env-file-if-exists=.env scripts/dev.js",
+    "dev": "node --env-file-if-exists=.env scripts/dev.js",
+    "db:migrate": "node --env-file-if-exists=.env scripts/migrate.js",
+    "admin:create": "node --env-file-if-exists=.env scripts/admin.js",
+    "test": "node --test --test-concurrency=1 tests/*.test.js",
+    "test:browser": "node tests/browser-check.js"
+  },
+  "dependencies": {
+    "chart.js": "^4.5.1",
+    "dompurify": "^3.4.16",
+    "exceljs": "^4.4.0",
+    "express": "^5.2.1",
+    "helmet": "^8.3.0",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
+    "pg": "^8.23.0",
+    "serverless-http": "^4.0.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "playwright": "^1.63.0"
+  },
+  "overrides": {
+    "uuid": "11.1.1"
+  }
+}

@@ -1,0 +1,11 @@
+node_modules/
+.env*
+!.env.example
+.vercel/
+.local/
+dist/
+test-results/
+public/vendor/
+
+# Local Netlify folder
+.netlify

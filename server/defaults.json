@@ -1,0 +1,164 @@
+{
+  "control": {
+    "escenario": "Base",
+    "tcBase": null,
+    "margenObj": 0,
+    "vigenciaMeses": 0,
+    "tcFecha": null,
+    "tcAuto": false,
+    "tcSerie": "fix"
+  },
+  "escenarios": {
+    "tc": {
+      "Base": 1,
+      "Conservador": 1,
+      "Estrés": 1
+    },
+    "materiales": {
+      "Base": 1,
+      "Conservador": 1,
+      "Estrés": 1
+    },
+    "rendimiento": {
+      "Base": 1,
+      "Conservador": 1,
+      "Estrés": 1
+    },
+    "merma": {
+      "Base": 1,
+      "Conservador": 1,
+      "Estrés": 1
+    },
+    "volumen": {
+      "Base": 1,
+      "Conservador": 1,
+      "Estrés": 1
+    },
+    "utilizacion": {
+      "Base": 1,
+      "Conservador": 1,
+      "Estrés": 1
+    },
+    "energia": {
+      "Base": 1,
+      "Conservador": 1,
+      "Estrés": 1
+    },
+    "nomina": {
+      "Base": 1,
+      "Conservador": 1,
+      "Estrés": 1
+    },
+    "flete": {
+      "Base": 1,
+      "Conservador": 1,
+      "Estrés": 1
+    },
+    "tiempoCiclo": {
+      "Base": 1,
+      "Conservador": 1,
+      "Estrés": 1
+    },
+    "tiempoPrep": {
+      "Base": 1,
+      "Conservador": 1,
+      "Estrés": 1
+    },
+    "retrabajo": {
+      "Base": 1,
+      "Conservador": 1,
+      "Estrés": 1
+    },
+    "rechazo": {
+      "Base": 1,
+      "Conservador": 1,
+      "Estrés": 1
+    },
+    "mantenimiento": {
+      "Base": 1,
+      "Conservador": 1,
+      "Estrés": 1
+    },
+    "consumibles": {
+      "Base": 1,
+      "Conservador": 1,
+      "Estrés": 1
+    },
+    "garantias": {
+      "Base": 1,
+      "Conservador": 1,
+      "Estrés": 1
+    },
+    "precioVenta": {
+      "Base": 1,
+      "Conservador": 1,
+      "Estrés": 1
+    },
+    "financiero": {
+      "Base": 1,
+      "Conservador": 1,
+      "Estrés": 1
+    },
+    "deltaMargen": {
+      "Base": 0,
+      "Conservador": 0,
+      "Estrés": 0
+    }
+  },
+  "capacidad": {
+    "dias": null,
+    "turnos": null,
+    "horas": null,
+    "comida": null,
+    "festivos": null,
+    "vacaciones": null,
+    "ausentismo": null,
+    "mantenimiento": null,
+    "setups": null,
+    "paros": null,
+    "horasUsadas": null
+  },
+  "moParams": {
+    "isn": null,
+    "infonavit": null,
+    "imss": null,
+    "aguinaldoDias": null,
+    "vacDias": null,
+    "primaVac": null,
+    "otros": null,
+    "semanas": 4.333333333333333
+  },
+  "empleados": [],
+  "maquinaria": [],
+  "indirectos": [],
+  "energia": {
+    "precio": null,
+    "cargoFijo": null,
+    "demandaKW": 0,
+    "cargoDemanda": 0,
+    "reciboReal": null,
+    "cargas": []
+  },
+  "financiero": {
+    "activar": true,
+    "diasInv": 0,
+    "diasCliente": 0,
+    "diasProveedor": 0,
+    "tasaAnual": 0,
+    "comision": 0,
+    "difCambiario": 0,
+    "reservaFX": 0
+  },
+  "inserts": [],
+  "catalogo": [],
+  "perInsert": {},
+  "presupuesto": {
+    "otrosFijos": 0,
+    "meta": null
+  },
+  "periodos": {},
+  "periodoActivo": null,
+  "periodoVista": "catalogo",
+  "clientes": [],
+  "ruta": []
+}

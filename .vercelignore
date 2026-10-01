@@ -1,0 +1,6 @@
+.env*
+.local/
+.git/
+test-results/
+tests/
+outputs/
