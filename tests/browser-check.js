@@ -3,6 +3,18 @@ import {randomUUID,randomBytes} from 'node:crypto';
 import {mkdir,readFile} from 'node:fs/promises';
 import {chromium} from 'playwright';
 process.env.LOCAL_DATABASE=':memory:';process.env.APP_ORIGIN='http://localhost:3200';
+process.env.BMX_TOKEN='browser-test-token';
+let banxicoCalls=0;
+const originalFetch=globalThis.fetch;
+globalThis.fetch=(url,options)=>{
+ if(!String(url).startsWith('https://www.banxico.org.mx/SieAPIRest/'))return originalFetch(url,options);
+ banxicoCalls++;
+ assert.equal(options.headers['Bmx-Token'],process.env.BMX_TOKEN);
+ return Promise.resolve(new Response(JSON.stringify({bmx:{series:[
+  {idSerie:'SF43718',datos:[{dato:'17.4321',fecha:'30/09/2026'}]},
+  {idSerie:'SF60653',datos:[{dato:'17.3210',fecha:'30/09/2026'}]}
+ ]}}),{status:200,headers:{'Content-Type':'application/json'}}));
+};
 const {app}=await import('../server/app.js');const {db}=await import('../server/db.js');const {migrate}=await import('../scripts/migrate.js');const {hashPassword}=await import('../server/security.js');
 const database=await db();await migrate(database);const password=randomBytes(24).toString('base64url');const hash=await hashPassword(password);
 for(const role of ['admin','captura','consulta'])await database.query('INSERT INTO users(id,email,name,role,password_hash,must_change_password) VALUES($1,$2,$3,$4,$5,false)',[randomUUID(),role+'@example.test','Usuario de prueba',role,hash]);
@@ -14,9 +26,21 @@ const errors=[];const context=await browser.newContext({viewport:{width:1440,hei
 page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());
 async function login(page,role){await page.goto(process.env.APP_ORIGIN);await page.locator('[name=email]').fill(role+'@example.test');await page.locator('[name=password]').fill(password);await page.getByRole('button',{name:'Iniciar sesión',exact:true}).click();await page.locator('#application').waitFor({state:'visible'});}
 async function saved(){await page.waitForFunction(()=>document.getElementById('saveTxt').textContent==='Guardado en la base compartida');}
+async function waitForState(predicate){for(let i=0;i<100;i++){const {state}=await page.evaluate(()=>fetch('/api/state').then(r=>r.json()));if(predicate(state))return;await new Promise(resolve=>setTimeout(resolve,100));}throw new Error('Shared state did not reach the expected value');}
 try{
  await page.goto(process.env.APP_ORIGIN);await page.getByRole('heading',{name:'Costeo integral'}).waitFor();await page.screenshot({path:'test-results/login-desktop.png'});
  await login(page,'admin');console.log('Login verified');
+ assert.equal(banxicoCalls,0,'Auto update is off by default');
+ await page.locator('[data-click="go(\'control\')"]').click();
+ await page.locator('[data-path="control.tcAuto"]').selectOption('true');
+ await waitForState(state=>state.control.tcAuto===true);
+ await page.reload();
+ await waitForState(state=>state.control.tcBase===17.4321&&state.control.tcFecha==='30/09/2026');
+ assert.equal(banxicoCalls,1,'The enabled option fetches FIX once on login');
+ await page.locator('[data-click="go(\'control\')"]').click();
+ await page.locator('[data-path="control.tcAuto"]').selectOption('false');
+ await waitForState(state=>state.control.tcAuto===false);
+ console.log('Automatic Banxico update and opt-out verified');
  for(const section of await page.evaluate(()=>NF_MODEL.sections)){await page.locator(`[data-click="go('${section.id}')"]`).click();await page.locator('#content').waitFor({state:'visible'});}
  assert.deepEqual(errors,[]);console.log('All 16 empty-state screens verified');
  await page.locator('[data-click="go(\'integral\')"]').click();await page.locator('[data-click="addInsert()"]').click();await saved();
