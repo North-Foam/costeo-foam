@@ -8,7 +8,8 @@ const id = z.string().regex(/^[\p{L}\p{N}_ -]{1,80}$/u, 'Usa letras, números, e
 const numericRecord = z.record(key, num);
 const numbers = keys => Object.fromEntries(keys.map(k => [k, num.optional()]));
 const material = z.object({ nombre: text.optional(), bloque: z.boolean().optional(), ...numbers(['precio','grosor','ancho','largo','costo']) }).strict();
-const pieza = z.object({ comp: text.optional(), ...numbers(['m1','m2','grosor','mat','cant','piezasManual','s1','s2']) }).strict();
+const toNumber = v => (typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v))) ? Number(v) : v;
+const pieza = z.object({ comp: text.optional(), ...numbers(['m1','m2','grosor','cant','piezasManual','s1','s2']), mat: z.preprocess(toNumber, num.optional()).optional() }).strict();
 const period = z.object({
   items: z.record(id, z.object({ inc: z.boolean().optional(), vol: num.optional() }).strict()),
   estado: z.enum(['cerrado']).nullable().optional(), indirectos: numericRecord.optional(), capacidad: numericRecord.optional(), energia: numericRecord.optional(), mano: numericRecord.optional()
