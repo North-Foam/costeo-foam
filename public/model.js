@@ -849,6 +849,8 @@ function clienteDe(ins){ return (ins&&ins.cliente)?String(ins.cliente).trim():""
 function clienteLabel(ins){ return clienteDe(ins)||"Sin cliente"; }
 function ensureClientes(){
   if(!Array.isArray(S.clientes)) S.clientes=[];
+  // normalizar material de pieza guardado como texto ("1","2","3") a número
+  (S.inserts||[]).forEach(i=>{ const pz=i&&i.diseno&&i.diseno.piezas; if(Array.isArray(pz)) pz.forEach(p=>{ if(p&&typeof p.mat==="string"){ const n=Number(p.mat); p.mat=(Number.isFinite(n)&&n>=1&&n<=3)?n:1; } }); });
   // migrar clientes capturados antes en perInsert
   S.inserts.forEach(i=>{ const pc=(S.perInsert[String(i.id)]||{}).cliente;
     if(pc&&!i.cliente){ i.cliente=String(pc).trim(); }
@@ -945,7 +947,7 @@ function secDiseno(R){
     <td class="l">${selRaw(`inserts.${idx}.diseno.piezas.${j}.comp`,(COMPONENTES.includes(p.comp)?COMPONENTES:[p.comp||""].concat(COMPONENTES)),p.comp||"Tapa / Base")}</td>
     <td>${fracInput(`inserts.${idx}.diseno.piezas.${j}.m1`,'0')}</td>
     <td>${fracInput(`inserts.${idx}.diseno.piezas.${j}.m2`,'0')}</td>
-    <td>${selRaw(`inserts.${idx}.diseno.piezas.${j}.mat`,["1","2","3"],String(p.mat||1))}</td>
+    <td><select class="f" data-path="inserts.${idx}.diseno.piezas.${j}.mat" data-type="num" data-pct="0">${[1,2,3].map(o=>`<option value="${o}" ${o===(num(p.mat)||1)?"selected":""}>${o}</option>`).join("")}</select></td>
     <td>${p.esBloque?fracInput(`inserts.${idx}.diseno.piezas.${j}.grosor`,'0'):`<span class="mono val-link" title="Grosor del material asignado">${(function(){const M=dz.mats[(num(p.mat)||1)-1]||{};return M.grosor>0?toFrac(M.grosor):'<span class="hint">—</span>';})()}</span>`}</td>
     <td>${inp(`inserts.${idx}.diseno.piezas.${j}.cant`)}</td>
     <td class="${p.esSuaje?'':'sua-off'}" title="Medidas del hueco suajado (material recuperable)">${p.esSuaje?fracInput(`inserts.${idx}.diseno.piezas.${j}.s1`,'0'):'<span class="hint">—</span>'}</td>
