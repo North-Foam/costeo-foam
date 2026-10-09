@@ -395,10 +395,9 @@ const SECTIONS=[
   {id:"ruta",ix:"10",name:"Ruta de proceso"},
   {id:"financiero",ix:"11",name:"Costo financiero"},
   {id:"mes",ix:"12",name:"Costeo mensual"},
-  {id:"integral",ix:"13",name:"Costeo integral"},
-  {id:"placas",ix:"14",name:"Costeo de placas"},
-  {id:"diagrama",ix:"15",name:"Diagrama de corte"},
-  {id:"validacion",ix:"16",name:"Validación"}
+  {id:"placas",ix:"13",name:"Costeo de placas"},
+  {id:"diagrama",ix:"14",name:"Diagrama de corte"},
+  {id:"validacion",ix:"15",name:"Validación"}
 ];
 let current="dashboard";
 
@@ -787,47 +786,6 @@ function secFinanciero(R){
   </div>`;
 }
 
-/* ---------- INTEGRAL ---------- */
-function secIntegral(R){
-  const rows=R.integral.map((it,i)=>({it,i})).filter(o=>pasaCliente(o.it.ins)).map(({it,i})=>{
-    const id=it.ins.id; const pi=S.perInsert[id]||{};
-    const gastosOp=it.admin+it.comercial+it.logistica+it.financiamiento+it.garantiaMXN;
-    const tip=`Admin ${fMXN(it.admin)} · Comercial ${fMXN(it.comercial)} · Logística ${fMXN(it.logistica)} · Financ. ${fMXN(it.financiamiento)} · Garantías ${fMXN(it.garantiaMXN)}`;
-    const conv=it.mo+it.ind;
-    return `<tr>
-      <td class="l">${insIdInput(i,id)}</td>
-      <td>${inpPer(id,"volumen",false)}</td>
-      <td>${it.tieneDiseno?`<span class="val-link mono" title="Calculado en Costeo de placas">${fUSD(it.disenoUSD)}</span>`:inp(`inserts.${i}.q25`)}</td>
-      <td>${inpPer(id,"mermaMat",true)}</td>
-      <td class="mono val-calc">${fMXN(it.materialMXN)}</td>
-      <td class="mono val-calc" title="Mano de obra + indirectos de la ruta">${conv?fMXN(conv):'—'}</td>
-      <td class="mono val-calc" title="${escapeHtml(tip)}">${fMXN(gastosOp)}</td>
-      <td class="mono val-calc" style="font-weight:700">${fMXN(it.costoIntegral)}</td>
-      <td>${inpPerMargen(id,it.margenObj)}</td>
-      <td class="mono val-calc" style="font-weight:700">${it.precioSug==null?'<span class="val-pend">INCOMP.</span>':fMXN(it.precioSug)}</td>
-      <td>${inp(`inserts.${i}.q26`)}</td>
-      <td class="mono val-link" title="Precio cliente en pesos">${fMXN(it.precioClMXN)}</td>
-      <td class="mono val-calc">${it.utilidad==null?'—':fMXN(it.utilidad)}</td>
-      <td class="mono" title="Markup ${it.markup==null?'—':fPct(it.markup)}">${it.margenReal==null?'—':fPct(it.margenReal)}</td>
-      <td class="l"><span class="lz ${it.luz}"><span class="b"></span>${it.estado.replace(' · ','·').replace('COSTEO INCOMPLETO','Incompleto')}</span></td>
-      <td><button class="del" data-click="delInsert(${i})" title="Eliminar inserto">✕</button></td></tr>`;
-  }).join("");
-  return head("Costeo integral por inserto","COSTEO_INTEGRAL",
-    "Material y precio cliente se conservan de cada inserto (azul, editable). La conversión viene de la ruta con tarifas por centro. Admin/comercial/logística se aplican sobre la conversión; financiamiento y garantías sobre el costo previo. Margen sobre venta ≠ markup.")
-  +`<div class="filterbar">${periodoSelector()}${clienteSelector()}<span class="hint">${R.integral.length} insertos en la lista · ${R.readyCount} costeados. Pasa el cursor sobre <b>Gastos op.</b> para ver el desglose y sobre <b>Margen</b> para el markup.</span></div>
-    <div class="tabla-integral"><table class="compact"><thead><tr>
-    <th class="l">Inserto</th><th>Vol.<br>mensual</th><th>Mat.<br>(USD)</th><th>%<br>Merma</th><th>Material<br>(MXN)</th>
-    <th>Conversión<br>(MXN)</th><th>Gastos op.<br>(MXN)</th><th>Costo<br>integral</th>
-    <th>Margen<br>obj.</th><th>Precio<br>sugerido</th><th>Precio cli.<br>(USD)</th><th>Precio cli.<br>(MXN)</th>
-    <th>Utilidad<br>/pza</th><th>Margen<br>real</th><th class="l">Semáforo</th><th></th>
-    </tr></thead><tbody>${rows}</tbody></table></div>
-    <div style="margin:8px 0">
-      <button class="rowbtn" data-click="addInsert()">+ Agregar inserto</button>
-      <button class="rowbtn" data-click="addInserts(10)">+ Agregar 10</button>
-      <button class="rowbtn" data-click="addInserts(60)">+ Agregar 60</button>
-    </div>
-    <div class="note" style="margin-top:6px">Captura el <b>número de inserto</b> (azul), su <b>material US$</b> y su <b>precio cliente US$</b> para darlo de alta. El % de merma y el margen objetivo son editables por inserto; si dejas el margen vacío usa el objetivo global (${fPct(num(S.control.margenObj)+f("deltaMargen"))}) del escenario actual. Para encender un inserto captura sus tiempos en <b>Ruta de proceso</b> (su número ya aparece en el menú de esa hoja). Si cambias el número de un inserto, su ruta y volumen se reasignan solos.</div>`;
-}
 function inpPer(id,field,pct){
   const pi=S.perInsert[id]||{}; const v=pi[field];
   const disp=(v==null||v==="")?"":(pct?v*100:v);
@@ -921,7 +879,10 @@ document.addEventListener("change",e=>{
 let disenoSel=null;
 let cliVista="(todos)";
 function secDiseno(R){
-  if(!S.inserts.length) return head("Costeo de placas","INSERTO","")+`<div class="note">Aún no hay insertos. Agrégalos en la sección Costeo integral.</div>`;
+  if(!S.inserts.length) return head("Costeo de placas","INSERTO","")+`<div class="note">Aún no hay insertos. Escribe el número del primero y oprime <b>+ Crear inserto</b>.</div>
+    <div style="display:flex;gap:6px;align-items:center;margin-top:10px">
+      <input id="newInsId" class="f txt" style="width:170px" placeholder="Número del nuevo inserto" data-enter="addNamedInsert()">
+      <button class="btn primary" data-click="addNamedInsert()">+ Crear inserto</button></div>`;
   if(disenoSel==null||!S.inserts.some(x=>String(x.id)===String(disenoSel))) disenoSel=String(S.inserts[0].id);
   const idx=S.inserts.findIndex(x=>String(x.id)===String(disenoSel));
   const ins=S.inserts[idx]; ensureDiseno(ins);
@@ -971,7 +932,7 @@ function secDiseno(R){
     <td><button class="del" data-click="delMaterial(${k})">✕</button></td></tr>`).join("");
 
   return head("Costeo de placas — optimización de corte","INSERTO (hoja individual del Excel)",
-    "Aquí capturas lo que antes vivía en la hoja de cada inserto: las placas de foam (hasta 3 materiales), las piezas (base, laterales, tapa…) con sus medidas y cantidad, y el aprovechamiento por placa. El costo del material resultante alimenta automáticamente el <b>Costeo integral</b>. Las medidas aceptan <b>fracciones</b> (ej. <b>17 3/4</b>, <b>3/8</b>) o decimales. Piezas por placa = máximo entre las dos orientaciones; puedes forzar el valor real de tu corte optimizado.")
+    "Aquí capturas lo que antes vivía en la hoja de cada inserto: las placas de foam (hasta 3 materiales), las piezas (base, laterales, tapa…) con sus medidas y cantidad, y el aprovechamiento por placa. El costo del material resultante alimenta automáticamente el <b>Costeo mensual</b>. Las medidas aceptan <b>fracciones</b> (ej. <b>17 3/4</b>, <b>3/8</b>) o decimales. Piezas por placa = máximo entre las dos orientaciones; puedes forzar el valor real de tu corte optimizado.")
   +`<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
       <div class="exsel" style="display:inline-flex"><span>Cliente</span>
         <select data-change="setClienteInserto(${idx},this.value)">
@@ -1012,7 +973,7 @@ function secDiseno(R){
         <tr><td class="l">Precio cliente (US$, editable)</td><td>${inp(`inserts.${idx}.q26`)}</td></tr>
         <tr><td class="l">Contribución antes de conversión</td><td class="mono val-calc">${fUSD(util)}</td></tr>
         <tr><td class="l">Contribución % sobre venta</td><td class="mono val-calc">${q26>0?fPct(util/q26):'—'}</td></tr>
-      </table><div class="note" style="margin-top:10px">Este costo de material entra al <b>Costeo integral</b> como material del inserto. La utilidad final se calcula ahí, ya con mano de obra e indirectos de la <b>Ruta de proceso</b>.</div></div></div>
+      </table><div class="note" style="margin-top:10px">Este costo de material entra al <b>Costeo mensual</b> como material del inserto. La utilidad final se calcula ahí, ya con mano de obra e indirectos de la <b>Ruta de proceso</b>.</div></div></div>
       <div class="card"><h3>Desglose por pieza</h3><div class="body"><table>
         <thead><tr><th class="l">Componente</th><th>Mat.</th><th>Costo inserto</th><th>% del material</th></tr></thead>
         <tbody>${dz.piezas.map(p=>`<tr><td class="l">${escapeHtml(String(p.comp||''))}</td><td class="mono">M${p.mat||1}</td>
@@ -1080,7 +1041,7 @@ function nestPlateSVG(placements,L,A){
     <rect width="${w.toFixed(1)}" height="${h.toFixed(1)}" fill="url(#hatch2)" stroke="#98a2ac" stroke-width="1.2"/>${rects}</svg>`;
 }
 function secDiagrama(R){
-  if(!S.inserts.length) return head("Diagrama de corte","")+`<div class="note">Aún no hay insertos. Agrégalos en Costeo integral o Costeo de placas.</div>`;
+  if(!S.inserts.length) return head("Diagrama de corte","")+`<div class="note">Aún no hay insertos. Agrégalos en Costeo de placas.</div>`;
   if(disenoSel==null||!S.inserts.some(x=>String(x.id)===String(disenoSel))) disenoSel=String(S.inserts[0].id);
   const idx=S.inserts.findIndex(x=>String(x.id)===String(disenoSel));
   const ins=S.inserts[idx]; ensureDiseno(ins);
@@ -1185,14 +1146,14 @@ function badgePeriodo(k){
 }
 function computeMes(R,k){
   const P=ensurePeriodo(k||periodoKey());
-  const filas=R.integral.map(it=>{
+  const filas=R.integral.map((it,i)=>{
     const id=String(it.ins.id); const cfg=P.items[id]||{};
     const inc=cfg.inc===true; const vol=num(cfg.vol);
     const ventas=it.precioClMXN*vol;
     const costo=it.complete?it.costoIntegral*vol:null;
     const material=it.materialMXN*vol;
     const util=it.complete?it.utilidad*vol:null;
-    return {it,id,inc,vol,ventas,costo,material,util,
+    return {it,i,id,inc,vol,ventas,costo,material,util,
             contrib:(it.precioClMXN-it.materialMXN)*vol};
   });
   const act=filas.filter(f=>f.inc&&f.vol>0);
@@ -1241,22 +1202,32 @@ function secMes(R){
   const cliLista=["(todos)"].concat([...new Set(S.inserts.map(i=>clienteLabel(i)))].sort());
   if(!cliLista.includes(cliFiltro)) cliFiltro="(todos)";
   const rows=M.filas.filter(f=>cliFiltro==="(todos)"||clienteLabel(f.it.ins)===cliFiltro)
-    .map(f=>`<tr${f.inc?'':' style="opacity:.5"'}>
+    .map(f=>{ const it=f.it, id=f.id, act=f.inc&&f.vol>0;
+      const conv=it.mo+it.maq+it.ind;
+      const gastosOp=it.admin+it.comercial+it.logistica+it.financiamiento+it.garantiaMXN;
+      const tip=`Admin ${fMXN(it.admin)} · Comercial ${fMXN(it.comercial)} · Logística ${fMXN(it.logistica)} · Financ. ${fMXN(it.financiamiento)} · Garantías ${fMXN(it.garantiaMXN)}`;
+      return `<tr${f.inc?'':' style="opacity:.5"'}>
     <td class="l"><label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-      <input type="checkbox" data-mes="${escapeHtml(f.id)}" data-campo="inc" ${f.inc?'checked':''}>
-      <span class="mono">${escapeHtml(f.id)}</span></label></td>
-    <td class="l" title="Se define en Costeo de placas">${escapeHtml(clienteLabel(f.it.ins))}</td>
-    <td><input class="f" type="number" step="any" data-mes="${escapeHtml(f.id)}" data-campo="vol" value="${f.vol||''}" placeholder="0"></td>
-    <td class="mono val-calc">${fMXN(f.it.costoIntegral)}</td>
-    <td class="mono val-calc">${fMXN(f.it.precioClMXN)}</td>
-    <td class="mono val-calc">${f.inc&&f.vol>0?fMXN(f.ventas):'—'}</td>
-    <td class="mono val-calc">${f.inc&&f.vol>0&&f.it.complete?fMXN(f.costo):'—'}</td>
-    <td class="mono val-calc" style="font-weight:700">${f.inc&&f.vol>0&&f.it.complete?fMXN(f.util):'—'}</td>
-    <td class="mono">${f.it.margenReal==null?'—':fPct(f.it.margenReal)}</td>
-    <td class="l"><span class="lz ${f.it.luz}"><span class="b"></span>${f.it.estado.replace(' · ','·').replace('COSTEO INCOMPLETO','Incompleto')}</span></td></tr>`).join("");
+      <input type="checkbox" data-mes="${escapeHtml(id)}" data-campo="inc" ${f.inc?'checked':''}>
+      <span class="mono">${escapeHtml(id)}</span></label></td>
+    <td class="l" title="Se define en Costeo de placas">${escapeHtml(clienteLabel(it.ins))}</td>
+    <td><input class="f" type="number" step="any" data-mes="${escapeHtml(id)}" data-campo="vol" value="${f.vol||''}" placeholder="0"></td>
+    <td>${it.tieneDiseno?`<span class="val-link mono" title="Calculado en Costeo de placas">${fUSD(it.disenoUSD)}</span>`:inp(`inserts.${f.i}.q25`)}</td>
+    <td>${inpPer(id,"mermaMat",true)}</td>
+    <td class="mono val-calc" title="Material en pesos con merma y TC">${fMXN(it.materialMXN)}</td>
+    <td class="mono val-calc" title="Mano de obra + indirectos de la ruta">${conv?fMXN(conv):'—'}</td>
+    <td class="mono val-calc" title="${escapeHtml(tip)}">${fMXN(gastosOp)}</td>
+    <td class="mono val-calc" style="font-weight:700">${it.complete?fMXN(it.costoIntegral):'<span class="val-pend">INCOMP.</span>'}</td>
+    <td>${inpPerMargen(id,it.margenObj)}</td>
+    <td class="mono val-calc">${it.precioSug==null?'—':fMXN(it.precioSug)}</td>
+    <td title="${escapeHtml('En pesos: '+fMXN(it.precioClMXN))}">${inp(`inserts.${f.i}.q26`)}</td>
+    <td class="mono val-calc">${act?fMXN(f.ventas):'—'}</td>
+    <td class="mono val-calc" style="font-weight:700">${act&&it.complete?fMXN(f.util):'—'}</td>
+    <td class="mono" title="Markup ${it.markup==null?'—':fPct(it.markup)}">${it.margenReal==null?'—':fPct(it.margenReal)}</td>
+    <td class="l"><span class="lz ${it.luz}"><span class="b"></span>${it.estado.replace(' · ','·').replace('COSTEO INCOMPLETO','Incompleto')}</span></td></tr>`; }).join("");
   const hist=Object.keys(S.periodos||{}).sort().reverse();
   return head("Costeo mensual — insertos trabajados en el mes","REPORTE POR PERIODO",
-    "Selecciona el mes y marca qué insertos se trabajan, con su volumen del periodo. Los costos unitarios vienen de <b>Costeo de placas</b> y <b>Ruta de proceso</b> (información fija del catálogo); aquí solo defines qué y cuánto se produce cada mes. Cada periodo se guarda por separado para consultarlo después.")
+    "Selecciona el mes y marca qué insertos se trabajan, con su volumen del periodo. Aquí ves el costo integral completo de cada inserto (material, conversión de la <b>Ruta de proceso</b> y gastos de operación), su precio sugerido y su margen. Cada periodo se guarda por separado para consultarlo después.")
   +`<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
       <div class="exsel" style="display:inline-flex"><span>Periodo</span>
         <input type="month" class="f" style="width:140px" value="${escapeHtml(k)}" data-change="setPeriodo(this.value)"></div>
@@ -1281,12 +1252,16 @@ function secMes(R){
     </div>
 
     <div class="tabla-integral" style="margin-top:14px"><table class="compact"><thead><tr>
-      <th class="l">Incluir / inserto</th><th class="l">Cliente</th><th>Volumen<br>del mes</th><th>Costo<br>integral u.</th><th>Precio<br>cliente u.</th>
-      <th>Ventas<br>del mes</th><th>Costo<br>del mes</th><th>Utilidad<br>del mes</th><th>Margen</th><th class="l">Estado</th>
+      <th class="l">Incluir / inserto</th><th class="l">Cliente</th><th>Vol.<br>del mes</th><th>Mat.<br>(USD)</th><th>%<br>Merma</th>
+      <th>Material<br>u. (MXN)</th><th>Conversión<br>u. (MXN)</th><th>Gastos op.<br>u. (MXN)</th><th>Costo<br>integral u.</th>
+      <th>Margen<br>obj.</th><th>Precio<br>sugerido u.</th><th>Precio cli.<br>u. (USD)</th>
+      <th>Ventas<br>del mes</th><th>Utilidad<br>del mes</th><th>Margen<br>real</th><th class="l">Estado</th>
       </tr></thead><tbody>${rows}</tbody>
-      <tfoot><tr class="total"><td class="l">Totales del periodo</td><td></td><td class="mono">${fN(M.piezas,0)}</td><td></td><td></td>
-        <td class="mono">${fMXN(M.ventas)}</td><td class="mono">${fMXN(M.costoAbs)}</td><td class="mono">${fMXN(M.utilAbs)}</td>
+      <tfoot><tr class="total"><td class="l">Totales del periodo</td><td></td><td class="mono">${fN(M.piezas,0)}</td>
+        <td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
+        <td class="mono">${fMXN(M.ventas)}</td><td class="mono">${fMXN(M.utilAbs)}</td>
         <td class="mono">${M.margen==null?'—':fPct(M.margen)}</td><td></td></tr></tfoot></table></div>
+    <div class="note" style="margin-top:6px">Azul = dato editable. <b>Material US$</b> se calcula en Costeo de placas; si el inserto no tiene placas capturadas puedes escribirlo aquí. <b>% merma</b>, <b>margen objetivo</b> y <b>precio cliente US$</b> son datos del inserto (aplican en todos los meses); si dejas el margen vacío usa el objetivo global (${fPct(num(S.control.margenObj)+f("deltaMargen"))}). Pasa el cursor sobre <b>Gastos op.</b> para ver el desglose (admin, comercial, logística, financiamiento y garantías), sobre <b>Precio cli.</b> para verlo en pesos y sobre <b>Margen real</b> para el markup. Sin tiempos en Ruta de proceso el inserto queda <b>incompleto</b>.</div>
 
     <div class="grid2" style="margin-top:16px">
       <div class="card"><h3>Resultado del periodo · ${nombreMes(k)}</h3><div class="pad"><table class="fija">
@@ -1768,7 +1743,7 @@ function renderSection(id){
   const R=compute();
   const map={dashboard:secDashboard,mes:secMes,presupuesto:secPresupuesto,resumen:secResumen,control:secControl,capacidad:secCapacidad,mano:secMano,
     indirectos:secIndirectos,energia:secEnergia,centros:secCentros,
-    ruta:secRuta,financiero:secFinanciero,integral:secIntegral,placas:secDiseno,diagrama:secDiagrama,validacion:secValidacion};
+    ruta:secRuta,financiero:secFinanciero,integral:secMes,placas:secDiseno,diagrama:secDiagrama,validacion:secValidacion};
   const cont=document.getElementById("content");
   cont.className="content"+(puedeEditar()?"":" ro");
   cont.innerHTML=(map[id]||secDashboard)(R);
@@ -1997,8 +1972,8 @@ function buildWorkbook(){
 /* ===================== APP API ===================== */
 const app={
   go(id){current=id;renderNav();renderSection(id);document.querySelector(".content").scrollIntoView({block:"start"});window.scrollTo(0,0);},
-  addInsert(){ const id=nextInsId(); S.inserts.push({id,q25:null,q26:null}); S.ruta.push(...stdRutaOps(id)); sortInserts(); save(); renderKPIs(); renderChain(); renderSection("integral"); },
-  addInserts(n){ for(let k=0;k<n;k++){ const id=nextInsId(); S.inserts.push({id,q25:null,q26:null}); S.ruta.push(...stdRutaOps(id)); } sortInserts(); save(); renderKPIs(); renderChain(); renderSection("integral"); toast(n+" insertos agregados"); },
+  addInsert(){ const id=nextInsId(); S.inserts.push({id,q25:null,q26:null}); S.ruta.push(...stdRutaOps(id)); sortInserts(); save(); renderKPIs(); renderChain(); renderSection(current); },
+  addInserts(n){ for(let k=0;k<n;k++){ const id=nextInsId(); S.inserts.push({id,q25:null,q26:null}); S.ruta.push(...stdRutaOps(id)); } sortInserts(); save(); renderKPIs(); renderChain(); renderSection(current); toast(n+" insertos agregados"); },
   rutasEstandar(){
     S.inserts.forEach(ins=>{ const id=String(ins.id);
       if(!S.ruta.some(r=>String(r.ins)===id&&r.proc===CENTRO_PROD)) S.ruta.push(stdRutaOps(id)[0]);
@@ -2096,7 +2071,7 @@ const app={
   addEmp(){S.empleados.push({puesto:"Nuevo puesto",tipo:"Directa",centro:"Corte",period:"Semanal",sueldo:null,n:1,uniformes:0,capacitacion:0,ausent:0});save();renderSection("mano");},
   addInd(){S.indirectos.push({c:"Nuevo concepto",cl:"Indirecto fijo",ce:"Otros",m:null});save();renderSection("indirectos");},
   addCarga(){S.energia.cargas.push({n:"Nueva carga",kw:0,h:0});save();renderSection("energia");},
-  addRuta(){if(!S.inserts.length){toast("Primero agrega un inserto en Costeo integral");return;} S.ruta.push({ins:S.inserts[0].id,op:20,proc:"Corte",ce:"Corte/Pegado/Ensamble",prep:null,lote:1,minMO:null,minMaq:null,nop:1,retrab:0,merma:0});save();renderSection("ruta");},
+  addRuta(){if(!S.inserts.length){toast("Primero agrega un inserto en Costeo de placas");return;} S.ruta.push({ins:S.inserts[0].id,op:20,proc:"Corte",ce:"Corte/Pegado/Ensamble",prep:null,lote:1,minMO:null,minMaq:null,nop:1,retrab:0,merma:0});save();renderSection("ruta");},
   delRow(path,i){
     const parts=path.split(".");let o=S;for(const p of parts)o=o[p];
     o.splice(i,1);save();renderKPIs();renderChain();renderSection(current);
