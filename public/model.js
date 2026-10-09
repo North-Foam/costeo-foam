@@ -393,16 +393,17 @@ const SECTIONS=[
   {id:"presupuesto",ix:"02",name:"Presupuesto y equilibrio"},
   {id:"resumen",ix:"03",name:"Resumen"},
   {id:"control",ix:"04",name:"Parámetros y costo financiero"},
-  {id:"capacidad",ix:"05",name:"Capacidad"},
-  {id:"mano",ix:"06",name:"Mano de obra"},
-  {id:"indirectos",ix:"07",name:"Indirectos"},
-  {id:"energia",ix:"08",name:"Energía y pool"},
-  {id:"centros",ix:"09",name:"Centros de costo"},
-  {id:"ruta",ix:"10",name:"Ruta de proceso"},
-  {id:"mes",ix:"11",name:"Costeo mensual"},
-  {id:"placas",ix:"12",name:"Costeo de placas"},
-  {id:"diagrama",ix:"13",name:"Diagrama de corte"},
-  {id:"validacion",ix:"14",name:"Validación"}
+  {id:"facturas",ix:"05",name:"Facturas de venta"},
+  {id:"capacidad",ix:"06",name:"Capacidad"},
+  {id:"mano",ix:"07",name:"Mano de obra"},
+  {id:"indirectos",ix:"08",name:"Indirectos"},
+  {id:"energia",ix:"09",name:"Energía y pool"},
+  {id:"centros",ix:"10",name:"Centros de costo"},
+  {id:"ruta",ix:"11",name:"Ruta de proceso"},
+  {id:"mes",ix:"12",name:"Costeo mensual"},
+  {id:"placas",ix:"13",name:"Costeo de placas"},
+  {id:"diagrama",ix:"14",name:"Diagrama de corte"},
+  {id:"validacion",ix:"15",name:"Validación"}
 ];
 let current="dashboard";
 
@@ -776,6 +777,7 @@ function nextInsId(){
 function clienteDe(ins){ return (ins&&ins.cliente)?String(ins.cliente).trim():""; }
 function clienteLabel(ins){ return clienteDe(ins)||"Sin cliente"; }
 function ensureClientes(){
+  ensureFacturas();
   if(!Array.isArray(S.clientes)) S.clientes=[];
   // normalizar material de pieza guardado como texto ("1","2","3") a número
   (S.inserts||[]).forEach(i=>{ const pz=i&&i.diseno&&i.diseno.piezas; if(Array.isArray(pz)) pz.forEach(p=>{ if(p&&typeof p.mat==="string"){ const n=Number(p.mat); p.mat=(Number.isFinite(n)&&n>=1&&n<=3)?n:1; } }); });
@@ -1249,6 +1251,16 @@ function secMes(R){
       </table><div class="note" style="margin-top:10px">Cada pieza ya absorbe su parte de conversión y gastos. Sólo incluye insertos con ruta capturada.</div></div></div>
     </div>
 
+    ${(function(){ const F=computeFacturado(R,k); const Pj=proyectadoPeriodo(R,k); if(!F.n&&!F.lista.length) return `<div class="note" style="margin-top:16px">Aún no hay facturas de venta de ${nombreMes(k)}. Súbelas en <b>Facturas de venta</b> para comparar lo real contra lo proyectado.</div>`;
+      const pc=pctCumpl(F.mxn,Pj.ventas);
+      return `<div class="card" style="margin-top:16px"><h3>Proyectado vs. facturado (real) · ${nombreMes(k)}</h3><div class="pad"><table class="fija">
+        <tr><th class="l" style="width:40%"></th><th>Proyectado</th><th>Facturado</th><th>Diferencia</th><th>Cumplimiento</th></tr>
+        <tr><td class="l">Piezas</td><td class="mono val-calc">${fN(Pj.piezas,0)}</td><td class="mono val-calc" style="font-weight:700">${fN(F.piezas,0)}</td><td class="mono val-calc">${fN(F.piezas-Pj.piezas,0)}</td><td class="mono">${pctCumpl(F.piezas,Pj.piezas)==null?'—':fPct(pctCumpl(F.piezas,Pj.piezas))}</td></tr>
+        <tr><td class="l">Ventas (MXN, antes de IVA)</td><td class="mono val-calc">${fMXN(Pj.ventas)}</td><td class="mono val-calc" style="font-weight:700">${fMXN(F.mxn)}</td><td class="mono val-calc">${fMXN(F.mxn-Pj.ventas)}</td><td class="l">${pc==null?'—':`<span class="lz ${luzCumpl(pc)}"><span class="b"></span>${fPct(pc)}</span>`}</td></tr>
+        <tr><td class="l">Margen de contribución (ventas − material)</td><td class="mono val-calc">${fMXN(M.contrib)}</td><td class="mono val-calc" style="font-weight:700">${fMXN(F.contrib)}</td><td class="mono val-calc">${fMXN(F.contrib-M.contrib)}</td><td></td></tr>
+        <tr class="total"><td class="l">Utilidad de operación (contribución − gastos fijos)</td><td class="mono">${fMXN(M.utilOper)}</td><td class="mono">${fMXN(F.contrib-M.fijos)}</td><td class="mono">${fMXN(F.contrib-M.fijos-M.utilOper)}</td><td></td></tr>
+      </table><div class="note" style="margin-top:10px">${F.n} factura(s) vigente(s)${F.sinAsignar.length?(' · <b>'+F.sinAsignar.length+' concepto(s) sin inserto</b> por '+fMXN(F.sinMXN)+' (cuentan en ventas pero sin costo de material)'):''}. Detalle por inserto y por mes en <b>Facturas de venta</b>.</div></div></div>`; })()}
+
     ${M.clientes&&M.clientes.length?`
     <div class="sechead" style="margin-top:22px"><h2 style="font-size:15px">Resultado por cliente</h2>
       <span class="src">${M.clientes.length} cliente(s) en ${nombreMes(k)}</span></div>
@@ -1299,9 +1311,198 @@ function secMes(R){
     </div>`:''}`;
 }
 
+/* ===================== FACTURAS DE VENTA (CFDI XML) ===================== */
+let facUltimo=null;
+function ensureFacturas(){
+  if(!Array.isArray(S.facturas)) S.facturas=[];
+  if(!S.facturaMap||typeof S.facturaMap!=="object"||Array.isArray(S.facturaMap)) S.facturaMap={};
+}
+function limpiaTxt(s,max){ return String(s==null?"":s).replace(/[<>\u0000-\u0008]/g,"").replace(/\s+/g," ").trim().slice(0,max||200); }
+function facSigno(fa){ return fa.tipo==="E"?-1:1; }
+function facTC(fa,tcDef){ return (fa.moneda==="MXN"||fa.moneda==="XXX")?1:(num(fa.tc)>0?num(fa.tc):tcDef); }
+function insDeConcepto(c){
+  const n=String(c.n||"").trim(); if(!n) return null;
+  const ids=new Set(S.inserts.map(i=>String(i.id)));
+  const m=(S.facturaMap||{})[n]; if(m&&ids.has(String(m))) return String(m);
+  if(ids.has(n)) return n;
+  const low=n.toLowerCase(); const hit=S.inserts.find(i=>String(i.id).toLowerCase()===low);
+  return hit?String(hit.id):null;
+}
+function enPeriodo(fecha,key){
+  const m=String(fecha||"").slice(0,7);
+  if(!key||key==="catalogo") return false;
+  if(String(key).startsWith("anio:")) return m.slice(0,4)===String(key).slice(5);
+  return m===key;
+}
+function computeFacturado(R,key){
+  ensureFacturas();
+  const byId=Object.fromEntries(R.integral.map(i=>[String(i.ins.id),i]));
+  const lista=S.facturas.filter(fa=>enPeriodo(fa.fecha,key));
+  const vig=lista.filter(fa=>!fa.cancelada);
+  const porIns={}; const sinAsignar=[]; let mxn=0, piezas=0, material=0, utilidad=0, utilCompleta=true;
+  vig.forEach(fa=>{
+    const sg=facSigno(fa), tc=facTC(fa,R.tc);
+    (fa.conceptos||[]).forEach(c=>{
+      const q=num(c.q)*sg, imp=num(c.i)*sg*tc;
+      mxn+=imp;
+      const id=insDeConcepto(c);
+      if(!id){ sinAsignar.push({n:c.n,d:c.d,q,imp,fecha:fa.fecha,uuid:fa.uuid}); return; }
+      if(!porIns[id]) porIns[id]={q:0,mxn:0};
+      porIns[id].q+=q; porIns[id].mxn+=imp; piezas+=q;
+      const it=byId[id];
+      if(it){ material+=it.materialMXN*q; if(it.complete) utilidad+=imp-it.costoIntegral*q; else utilCompleta=false; }
+    });
+  });
+  const sinMXN=sinAsignar.reduce((a,c)=>a+c.imp,0);
+  return {key,lista,vig,n:vig.length,canceladas:lista.length-vig.length,porIns,sinAsignar,sinMXN,mxn,piezas,material,
+          contrib:mxn-sinMXN-material,utilidad,utilCompleta};
+}
+function proyectadoPeriodo(R,key){
+  const getVol=volPeriodo(key); let ventas=0,piezas=0; const porIns={};
+  R.integral.forEach(it=>{ const v=getVol(String(it.ins.id)); if(v>0){ porIns[String(it.ins.id)]=v; ventas+=it.precioClMXN*v; piezas+=v; } });
+  return {ventas,piezas,porIns};
+}
+function parseCFDI(xmlText){
+  const doc=new DOMParser().parseFromString(xmlText,"application/xml");
+  if(doc.getElementsByTagName("parsererror").length) throw new Error("el archivo no es un XML válido");
+  const all=root=>[...root.getElementsByTagName("*")];
+  const comp=all(doc).find(e=>e.localName==="Comprobante"); if(!comp) throw new Error("no es un CFDI (falta el nodo Comprobante)");
+  const a=(e,k)=>e?(e.getAttribute(k)||""):"";
+  const tipo=a(comp,"TipoDeComprobante");
+  if(tipo==="P") throw new Error("es un complemento de pago, no una factura de venta");
+  if(tipo!=="I"&&tipo!=="E") throw new Error("tipo de comprobante "+(tipo||"desconocido")+" no soportado");
+  const tfd=all(doc).find(e=>e.localName==="TimbreFiscalDigital");
+  const uuid=a(tfd,"UUID").toUpperCase();
+  if(!/^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/.test(uuid)) throw new Error("no tiene timbre fiscal (UUID)");
+  const kids=(e,name)=>[...e.children].filter(x=>x.localName===name);
+  const em=kids(comp,"Emisor")[0], re=kids(comp,"Receptor")[0];
+  const cont=kids(comp,"Conceptos")[0];
+  const conceptos=(cont?kids(cont,"Concepto"):[]).map(c=>{
+    const imp=num(a(c,"Importe")), des=num(a(c,"Descuento"));
+    return {n:limpiaTxt(a(c,"NoIdentificacion"),80),d:limpiaTxt(a(c,"Descripcion"),200),
+            q:num(a(c,"Cantidad")),u:num(a(c,"ValorUnitario")),i:Math.round((imp-des)*100)/100};
+  });
+  if(!conceptos.length) throw new Error("no tiene conceptos");
+  if(conceptos.length>500) throw new Error("tiene más de 500 conceptos");
+  const fecha=a(comp,"Fecha").slice(0,10);
+  if(!/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/.test(fecha)) throw new Error("fecha inválida");
+  let moneda=(a(comp,"Moneda")||"MXN").toUpperCase(); if(!/^[A-Z]{3}$/.test(moneda)) moneda="MXN";
+  const tc=a(comp,"TipoCambio")?num(a(comp,"TipoCambio")):null;
+  return {uuid,fecha,serie:limpiaTxt(a(comp,"Serie"),40),folio:limpiaTxt(a(comp,"Folio"),40),tipo,moneda,
+    tc:(tc>0?tc:null),emisorRfc:limpiaTxt(a(em,"Rfc"),20),receptorRfc:limpiaTxt(a(re,"Rfc"),20),receptor:limpiaTxt(a(re,"Nombre"),200),
+    subtotal:num(a(comp,"SubTotal")),total:num(a(comp,"Total")),conceptos};
+}
+function pctCumpl(real,proy){ return proy>0?real/proy:null; }
+function luzCumpl(p){ return p==null?"g":(p>=1?"v":(p>=0.9?"a":"r")); }
+function secFacturas(R){
+  ensureFacturas();
+  const k=periodoKey(); const F=computeFacturado(R,k); const Pj=proyectadoPeriodo(R,k);
+  const byId=Object.fromEntries(R.integral.map(i=>[String(i.ins.id),i]));
+  const cumpl=pctCumpl(F.mxn,Pj.ventas);
+  // Comparativo por inserto
+  const ids=[...new Set(Object.keys(Pj.porIns).concat(Object.keys(F.porIns)))]
+    .sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
+  let tPq=0,tFq=0,tPv=0,tFv=0;
+  const cRows=ids.map(id=>{
+    const it=byId[id]; const pq=Pj.porIns[id]||0, fq=(F.porIns[id]||{}).q||0, fv=(F.porIns[id]||{}).mxn||0;
+    const pv=it?it.precioClMXN*pq:0; tPq+=pq; tFq+=fq; tPv+=pv; tFv+=fv;
+    const pc=pctCumpl(fq,pq); const prom=fq?fv/fq:null;
+    return `<tr><td class="l mono">${escapeHtml(id)}</td><td class="l">${escapeHtml(it?clienteLabel(it.ins):'—')}</td>
+      <td class="mono val-calc">${fN(pq,0)}</td><td class="mono val-calc" style="font-weight:700">${fN(fq,0)}</td>
+      <td class="mono val-calc" style="color:${fq-pq<0?'var(--red)':'inherit'}">${fq-pq>0?'+':''}${fN(fq-pq,0)}</td>
+      <td class="l">${pc==null?'<span class="hint">sin proyección</span>':`<span class="lz ${luzCumpl(pc)}"><span class="b"></span>${fPct(pc)}</span>`}</td>
+      <td class="mono val-calc">${fMXN(pv)}</td><td class="mono val-calc" style="font-weight:700">${fMXN(fv)}</td>
+      <td class="mono val-calc" style="color:${fv-pv<0?'var(--red)':'inherit'}">${fMXN(fv-pv)}</td>
+      <td class="mono val-calc" title="Precio de catálogo en pesos: ${it?fMXN(it.precioClMXN):'—'}">${prom==null?'—':fMXN(prom)}</td>
+      <td class="mono val-calc">${it?fMXN(it.precioClMXN):'—'}</td></tr>`;
+  }).join("");
+  // Conceptos sin inserto
+  const insOpts=S.inserts.map(i=>String(i.id));
+  const sinRows=F.sinAsignar.map(c=>`<tr><td class="l mono">${escapeHtml(c.fecha)}</td><td class="l mono">${escapeHtml(c.n||'(vacío)')}</td>
+      <td class="l">${escapeHtml(c.d)}</td><td class="mono">${fN(c.q,0)}</td><td class="mono val-calc">${fMXN(c.imp)}</td>
+      <td class="l">${c.n?`<select class="f" data-facmap="${escapeHtml(c.n)}"><option value="">Asignar a…</option>${insOpts.map(o=>`<option>${escapeHtml(o)}</option>`).join("")}</select>`:'<span class="hint">sin No. de identificación</span>'}</td></tr>`).join("");
+  // Facturas del periodo
+  const fRows=F.lista.slice().sort((a,b)=>String(b.fecha).localeCompare(String(a.fecha))).map(fa=>{
+    const tc=facTC(fa,R.tc); const sub=num(fa.subtotal)*facSigno(fa)*tc;
+    const pend=(fa.conceptos||[]).filter(c=>!insDeConcepto(c)).length;
+    return `<tr${fa.cancelada?' style="opacity:.5"':''}><td class="l mono">${escapeHtml(fa.fecha)}</td>
+      <td class="l mono">${escapeHtml([fa.serie,fa.folio].filter(Boolean).join("-")||'—')}${fa.tipo==="E"?' <span class="tag">N. crédito</span>':''}</td>
+      <td class="l">${escapeHtml(fa.receptor||fa.receptorRfc||'—')}</td>
+      <td class="mono">${escapeHtml(fa.moneda)}${fa.moneda!=="MXN"?' · '+fN(tc,4):''}</td>
+      <td class="mono val-calc">${fMXN(sub)}</td>
+      <td class="mono">${(fa.conceptos||[]).length}${pend?` <span class="val-pend" title="Conceptos sin inserto">${pend} sin inserto</span>`:''}</td>
+      <td class="l"><button class="rowbtn" style="margin:0" data-click="toggleFacCancelada('${fa.uuid}')">${fa.cancelada?'Cancelada · reactivar':'Vigente · cancelar'}</button></td>
+      <td><button class="del" data-click="delFactura('${fa.uuid}')" title="Eliminar factura">✕</button></td></tr>`;
+  }).join("");
+  // Comparativo mensual del año
+  const y=k.slice(0,4); let aPq=0,aFq=0,aPv=0,aFv=0,aN=0;
+  const mRows=Array.from({length:12},(_,i)=>{
+    const mk=y+"-"+String(i+1).padStart(2,"0");
+    const p=proyectadoPeriodo(R,mk), fz=computeFacturado(R,mk);
+    if(!p.piezas&&!fz.n) return `<tr style="opacity:.45"><td class="l">${nombreMes(mk)}</td><td class="mono">—</td><td class="mono">—</td><td></td><td class="mono">—</td><td class="mono">—</td><td></td><td class="mono">—</td></tr>`;
+    aPq+=p.piezas; aFq+=fz.piezas; aPv+=p.ventas; aFv+=fz.mxn; aN+=fz.n;
+    const pc=pctCumpl(fz.mxn,p.ventas);
+    return `<tr${mk===k?' style="background:var(--accentSoft)"':''}><td class="l">${nombreMes(mk)}</td>
+      <td class="mono val-calc">${fN(p.piezas,0)}</td><td class="mono val-calc" style="font-weight:700">${fN(fz.piezas,0)}</td>
+      <td class="mono">${pctCumpl(fz.piezas,p.piezas)==null?'—':fPct(pctCumpl(fz.piezas,p.piezas))}</td>
+      <td class="mono val-calc">${fMXN(p.ventas)}</td><td class="mono val-calc" style="font-weight:700">${fMXN(fz.mxn)}</td>
+      <td class="l">${pc==null?'—':`<span class="lz ${luzCumpl(pc)}"><span class="b"></span>${fPct(pc)}</span>`}</td>
+      <td class="mono">${fz.n}</td></tr>`;
+  }).join("");
+  const ult=facUltimo?`<div class="note" style="margin:0 0 12px">${facUltimo}</div>`:"";
+  return head("Facturas de venta","CFDI · VENTAS REALES",
+    "Sube los XML de tus facturas de venta (CFDI). Cada concepto se asigna al inserto cuyo número viene en <b>No. de identificación</b>. Lo facturado se compara contra el volumen proyectado del mes y se muestra como <b>real</b> en Costeo mensual, Presupuesto y equilibrio y el Panel ejecutivo, sin modificar lo proyectado.")
+  +`<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+      <div class="exsel" style="display:inline-flex"><span>Periodo</span>
+        <input type="month" class="f" style="width:140px" value="${escapeHtml(k)}" data-change="setPeriodo(this.value)"></div>
+      <label class="btn primary" style="cursor:pointer">Subir XML de facturas
+        <input type="file" accept=".xml,text/xml,application/xml" multiple style="display:none" data-change="subirFacturas(event)"></label>
+      <span class="hint">${nombreMes(k)} · ${F.n} factura(s) vigente(s)${F.canceladas?(' · '+F.canceladas+' cancelada(s)'):''} · ${S.facturas.length} en total</span>
+    </div>
+    ${ult}
+    <div class="hero">
+      ${hcard("Facturado del mes",fMXN0(F.mxn),"antes de IVA · "+nombreMes(k),"",true)}
+      ${hcard("Ventas proyectadas",fMXN0(Pj.ventas),"volumen del mes × precio cliente")}
+      ${hcard("Cumplimiento",cumpl==null?"—":fPct(cumpl),cumpl==null?"sin volumen proyectado":(F.mxn-Pj.ventas>=0?"+":"")+fMXN0(F.mxn-Pj.ventas)+" vs. proyectado",luzCumpl(cumpl))}
+      ${hcard("Piezas facturadas",fN(F.piezas,0),"vs. "+fN(Pj.piezas,0)+" proyectadas")}
+    </div>
+    <div class="sechead" style="margin-top:18px"><h2 style="font-size:17px">Proyectado vs. facturado por inserto</h2><span class="src">${nombreMes(k)}</span></div>
+    ${ids.length?`<div class="tabla-integral" style="margin-top:8px"><table class="compact"><thead><tr>
+      <th class="l">Inserto</th><th class="l">Cliente</th><th>Pzas<br>proyectadas</th><th>Pzas<br>facturadas</th><th>Diferencia<br>pzas</th><th class="l">Cumplimiento</th>
+      <th>Ventas<br>proyectadas</th><th>Ventas<br>facturadas</th><th>Diferencia<br>$</th><th>Precio prom.<br>facturado</th><th>Precio<br>catálogo</th>
+      </tr></thead><tbody>${cRows}</tbody>
+      <tfoot><tr class="total"><td class="l">Totales</td><td></td><td class="mono">${fN(tPq,0)}</td><td class="mono">${fN(tFq,0)}</td><td class="mono">${fN(tFq-tPq,0)}</td>
+        <td class="l">${pctCumpl(tFq,tPq)==null?'':fPct(pctCumpl(tFq,tPq))}</td><td class="mono">${fMXN(tPv)}</td><td class="mono">${fMXN(tFv)}</td><td class="mono">${fMXN(tFv-tPv)}</td><td></td><td></td></tr></tfoot></table></div>`
+      :`<div class="note">No hay volumen proyectado ni facturas en ${nombreMes(k)}. Captura volúmenes en <b>Costeo mensual</b> o sube las facturas del mes.</div>`}
+    ${F.sinAsignar.length?`
+    <div class="sechead" style="margin-top:18px"><h2 style="font-size:17px">Conceptos sin inserto</h2><span class="src">${F.sinAsignar.length} concepto(s) · ${fMXN(F.sinMXN)}</span></div>
+    <div class="tabla-integral" style="margin-top:8px"><table class="compact"><thead><tr>
+      <th class="l">Fecha</th><th class="l">No. identificación</th><th class="l">Descripción</th><th>Cantidad</th><th>Importe MXN</th><th class="l">Inserto</th>
+      </tr></thead><tbody>${sinRows}</tbody></table></div>
+    <div class="note" style="margin-top:6px">Su No. de identificación no coincide con ningún inserto. Asígnalo y la app recordará la equivalencia para las siguientes facturas. Estos importes sí cuentan en el total facturado, pero no en el comparativo por inserto.</div>`:''}
+    <div class="sechead" style="margin-top:18px"><h2 style="font-size:17px">Facturas de ${nombreMes(k)}</h2><span class="src">${F.lista.length} XML</span></div>
+    ${F.lista.length?`<div class="tabla-integral" style="margin-top:8px"><table class="compact"><thead><tr>
+      <th class="l">Fecha</th><th class="l">Serie-folio</th><th class="l">Cliente</th><th>Moneda · TC</th><th>Subtotal MXN</th><th>Conceptos</th><th class="l">Estado</th><th></th>
+      </tr></thead><tbody>${fRows}</tbody></table></div>`:`<div class="note">Aún no hay facturas de este mes.</div>`}
+    <div class="sechead" style="margin-top:18px"><h2 style="font-size:17px">Comparativo mensual ${y}</h2><span class="src">proyectado vs. facturado</span></div>
+    <div class="tabla-integral" style="margin-top:8px"><table class="compact"><thead><tr>
+      <th class="l">Mes</th><th>Pzas<br>proyectadas</th><th>Pzas<br>facturadas</th><th>% pzas</th><th>Ventas<br>proyectadas</th><th>Ventas<br>facturadas</th><th class="l">Cumplimiento $</th><th>Facturas</th>
+      </tr></thead><tbody>${mRows}</tbody>
+      <tfoot><tr class="total"><td class="l">Total ${y}</td><td class="mono">${fN(aPq,0)}</td><td class="mono">${fN(aFq,0)}</td><td class="mono">${pctCumpl(aFq,aPq)==null?'—':fPct(pctCumpl(aFq,aPq))}</td>
+        <td class="mono">${fMXN(aPv)}</td><td class="mono">${fMXN(aFv)}</td><td class="mono">${pctCumpl(aFv,aPv)==null?'—':fPct(pctCumpl(aFv,aPv))}</td><td class="mono">${aN}</td></tr></tfoot></table></div>
+    <div class="note" style="margin-top:8px">Importes antes de IVA (subtotal menos descuentos). Las facturas en dólares se convierten con el tipo de cambio del propio CFDI. Las notas de crédito (tipo E) restan. Las ventas proyectadas usan el precio cliente actual de cada inserto. Las facturas marcadas como canceladas no cuentan.</div>`;
+}
+document.addEventListener("change",e=>{
+  const el=e.target; if(!el.dataset||el.dataset.facmap===undefined) return;
+  ensureFacturas(); const n=el.dataset.facmap; if(!n||!el.value) return;
+  S.facturaMap[n]=el.value;
+  save(); renderKPIs(); renderChain(); renderSection(current); toast("Concepto "+n+" asignado al inserto "+el.value);
+});
+
 /* ---------- VALIDACIÓN ---------- */
 function secValidacion(R){
-  const rows=R.valid.map(v=>`<tr><td class="l">${v.k}</td><td class="mono val-calc">${v.v}</td>
+  ensureFacturas(); let sinIns=0; S.facturas.filter(f=>!f.cancelada).forEach(f=>(f.conceptos||[]).forEach(c=>{ if(!insDeConcepto(c)) sinIns++; }));
+  const rows=R.valid.concat([{k:"Conceptos facturados sin inserto",v:sinIns,rev:sinIns>0}]).map(v=>`<tr><td class="l">${v.k}</td><td class="mono val-calc">${v.v}</td>
     <td class="l"><span class="pill ${v.rev?'rev':'ok'}">${v.rev?'REVISAR':'OK'}</span></td></tr>`).join("");
   const pend=[];
   if(S.capacidad.horasUsadas==null) pend.push("Horas realmente utilizadas (Capacidad)");
@@ -1393,6 +1594,8 @@ function insights(R,bajoObj,bajoCosto){
   if(comp.length){ const ms=promedio(comp.map(i=>i.costoIntegral>0?i.materialMXN/i.costoIntegral:0));
     li.push(["info",`El material representa en promedio <b>${fPct(ms)}</b> del costo integral; es la palanca de negociación con proveedor más relevante.`]); }
   if(R.ociosaCosto!=null && R.ociosa>0) li.push(["warn",`La capacidad ociosa cuesta <b>${fMXN0(R.ociosaCosto)}/mes</b> (${fN(R.ociosa,0)} h sin absorber): más volumen o menos costo fijo mejora la tasa.`]);
+  { const kv=S.periodoVista||"catalogo"; if(kv!=="catalogo"){ const F=computeFacturado(R,kv); if(F.n){ const Pj=proyectadoPeriodo(R,kv); const pc=pctCumpl(F.mxn,Pj.ventas);
+      li.push([pc==null?"info":(pc>=1?"ok":"warn"),`Facturado en <b>${escapeHtml(etiquetaPeriodo(kv))}</b>: <b>${fMXN0(F.mxn)}</b> en ${F.n} factura(s)${pc==null?' (sin volumen proyectado para comparar)':(' — '+fPct(pc)+' de lo proyectado ('+fMXN0(Pj.ventas)+')')}.`]); } } }
   if(R.margenPond!=null) li.push([R.margenPond>=objG?"ok":"warn",`Margen ponderado del portafolio: <b>${fPct(R.margenPond)}</b> (objetivo ${fPct(objG)}).`]);
   return li.map(([k,t])=>`<li><span class="ic ${k}">${k==='ok'?'✓':k==='risk'?'!':k==='warn'?'▲':'i'}</span><span>${t}</span></li>`).join("");
 }
@@ -1643,6 +1846,18 @@ function secPresupuesto(R){
       <div class="card"><h3>Estado de resultados mensual</h3><div class="pad">${pnl}
         <div class="note" style="margin-top:10px">Utilidad de operación antes de impuestos. No incluye ISR/IVA.</div></div></div>
       <div class="card"><h3>Punto de equilibrio</h3><div class="pad">${be}</div></div>
+      ${(function(){ if(P.key==="catalogo") return ""; const F=computeFacturado(R,P.key); if(!F.n) return `<div class="card full"><h3>Real facturado · ${escapeHtml(P.etiqueta)}</h3><div class="pad"><div class="note">Sin facturas de venta en este periodo. Súbelas en <b>Facturas de venta</b> para ver el resultado real contra el equilibrio.</div></div></div>`;
+        const uo=F.contrib-P.GF; const pc=pctCumpl(F.mxn,P.ventas);
+        return `<div class="card full"><h3>Real facturado vs. proyectado · ${escapeHtml(P.etiqueta)}</h3><div class="pad"><table class="fija">
+          <tr><th class="l" style="width:40%"></th><th>Proyectado</th><th>Facturado (real)</th><th>Diferencia</th></tr>
+          <tr><td class="l">Ventas netas</td><td class="mono val-calc">${fMXN(P.ventas)}</td><td class="mono val-calc" style="font-weight:700">${fMXN(F.mxn)}</td><td class="mono val-calc">${fMXN(F.mxn-P.ventas)}</td></tr>
+          <tr><td class="l">(−) Costo variable — material</td><td class="mono val-calc">(${fMXN(P.matMes)})</td><td class="mono val-calc">(${fMXN(F.material)})</td><td class="mono val-calc">${fMXN(P.matMes-F.material)}</td></tr>
+          <tr class="sub"><td class="l">= Margen de contribución</td><td class="mono">${fMXN(P.contribMes)}</td><td class="mono">${fMXN(F.contrib)}</td><td class="mono">${fMXN(F.contrib-P.contribMes)}</td></tr>
+          <tr><td class="l">(−) Gastos fijos</td><td class="mono val-calc">(${fMXN(P.GF)})</td><td class="mono val-calc">(${fMXN(P.GF)})</td><td></td></tr>
+          <tr class="total"><td class="l">= Utilidad de operación</td><td class="mono">${P.utilOper==null?'—':fMXN(P.utilOper)}</td><td class="mono">${fMXN(uo)}</td><td class="mono">${P.utilOper==null?'—':fMXN(uo-P.utilOper)}</td></tr>
+          <tr><td class="l">Cumplimiento de ventas</td><td></td><td class="mono">${pc==null?'—':fPct(pc)}</td><td></td></tr>
+          <tr><td class="l">Facturado vs. punto de equilibrio</td><td></td><td class="mono">${P.PE==null?'—':(F.mxn>=P.PE?('+'+fMXN(F.mxn-P.PE)+' arriba'):(fMXN(F.mxn-P.PE)+' abajo'))}</td><td></td></tr>
+        </table><div class="note" style="margin-top:10px">${F.n} factura(s) vigente(s). Material real = costo de material por pieza × piezas facturadas de cada inserto${F.sinAsignar.length?('; '+F.sinAsignar.length+' concepto(s) sin inserto no llevan costo de material'):''}.</div></div></div>`; })()}
       <div class="card full"><h3>Gráfica de equilibrio</h3><div class="chartbox tall"><canvas id="ch_breakeven"></canvas></div></div>
       <div class="card full"><h3>Gastos fijos de operación (mensuales)</h3><div class="pad">${gf}</div></div>
     </div>`;
@@ -1652,7 +1867,8 @@ function buildPresupuestoCharts(R){
   Chart.defaults.font.family="'IBM Plex Sans',sans-serif"; Chart.defaults.font.size=11; Chart.defaults.color="#5f6d7a";
   const P=computePresupuesto(R);
   if(!(P.ratio>0)||P.PE==null){ return; }
-  const xMax=Math.max(P.PE, P.ventas||0, P.meta||0)*1.4 || P.PE*1.4;
+  const Fx=P.key!=="catalogo"?computeFacturado(R,P.key):null;
+  const xMax=Math.max(P.PE, P.ventas||0, P.meta||0, (Fx&&Fx.n)?Fx.mxn:0)*1.4 || P.PE*1.4;
   const line=(fn)=>[{x:0,y:fn(0)},{x:xMax,y:fn(xMax)}];
   const datasets=[
     {label:"Ingresos",data:line(x=>x),borderColor:PAL[0],backgroundColor:PAL[0],borderWidth:2,pointRadius:0,tension:0},
@@ -1660,6 +1876,7 @@ function buildPresupuestoCharts(R){
     {label:"Gastos fijos",data:line(x=>P.GF),borderColor:"#9aa3ab",borderDash:[5,4],borderWidth:1.5,pointRadius:0},
     {label:"Punto de equilibrio",data:[{x:P.PE,y:P.PE}],type:"scatter",backgroundColor:"#16222e",pointRadius:6,pointHoverRadius:7}
   ];
+  if(P.key!=="catalogo"){ const F=computeFacturado(R,P.key); if(F.n) datasets.push({label:"Ventas facturadas (real)",data:[{x:F.mxn,y:F.mxn}],type:"scatter",backgroundColor:PAL[4],pointRadius:6,pointHoverRadius:7,pointStyle:"rectRot"}); }
   if(P.conVol) datasets.push({label:"Ventas actuales",data:[{x:P.ventas,y:P.ventas}],type:"scatter",backgroundColor:SEM.v,pointRadius:6,pointHoverRadius:7});
   const money=v=>v>=1000?"$"+(v/1000).toLocaleString("es-MX",{maximumFractionDigits:0})+"k":"$"+v;
   mkChart("ch_breakeven",{type:"line",data:{datasets},
@@ -1676,7 +1893,7 @@ function renderSection(id){
   const R=compute();
   const map={dashboard:secDashboard,mes:secMes,presupuesto:secPresupuesto,resumen:secResumen,control:secControl,capacidad:secCapacidad,mano:secMano,
     indirectos:secIndirectos,energia:secEnergia,centros:secCentros,
-    ruta:secRuta,financiero:secControl,integral:secMes,placas:secDiseno,diagrama:secDiagrama,validacion:secValidacion};
+    ruta:secRuta,financiero:secControl,facturas:secFacturas,integral:secMes,placas:secDiseno,diagrama:secDiagrama,validacion:secValidacion};
   const cont=document.getElementById("content");
   cont.className="content"+(puedeEditar()?"":" ro");
   cont.innerHTML=(map[id]||secDashboard)(R);
@@ -1899,6 +2116,16 @@ function buildWorkbook(){
   });
   if(dc.length>1) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(dc), "Diagrama corte");
   if(nc.length>1) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(nc), "Nesting combinado");
+  ensureFacturas();
+  if(S.facturas.length){
+    const fx=[["UUID","Fecha","Serie","Folio","Tipo","Cliente","RFC cliente","Moneda","TC","No. identificación","Inserto","Descripción","Cantidad","Valor unitario","Importe","Importe MXN","Estado"]];
+    S.facturas.forEach(fa=>{ const tc=facTC(fa,R.tc), sg=facSigno(fa); (fa.conceptos||[]).forEach(c=>fx.push([fa.uuid,fa.fecha,fa.serie||"",fa.folio||"",fa.tipo==="E"?"Nota de crédito":"Ingreso",fa.receptor||"",fa.receptorRfc||"",fa.moneda,tc,c.n||"",insDeConcepto(c)||"(sin asignar)",c.d||"",num(c.q)*sg,num(c.u),num(c.i)*sg,r2(num(c.i)*sg*tc),fa.cancelada?"Cancelada":"Vigente"])); });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(fx), "Facturas de venta");
+    const y=periodoKey().slice(0,4); const cm=[["Mes","Piezas proyectadas","Piezas facturadas","Ventas proyectadas MXN","Ventas facturadas MXN","Cumplimiento %","Facturas"]];
+    for(let m=1;m<=12;m++){ const mk=y+"-"+String(m).padStart(2,"0"); const p=proyectadoPeriodo(R,mk), fz=computeFacturado(R,mk);
+      cm.push([nombreMes(mk),p.piezas,fz.piezas,r2(p.ventas),r2(fz.mxn),p.ventas>0?r2(fz.mxn/p.ventas*100):"",fz.n]); }
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(cm), "Proyectado vs facturado "+y);
+  }
   return wb;
 }
 
@@ -1959,7 +2186,28 @@ const app={
   abrirAcceso(){ NF.openAccount(); },
   setPeriodoVista(v){ S.periodoVista=v||"catalogo"; save(); renderKPIs(); renderChain(); renderSection(current); toast("Consultando "+etiquetaPeriodo(S.periodoVista)); },
   setPresuPeriodo(v){ S.periodoVista=v||"catalogo"; save(); renderKPIs(); renderChain(); renderSection("presupuesto"); },
-  setPeriodo(v){ if(!v) return; S.periodoActivo=v; ensurePeriodo(v); save(); renderSection("mes"); },
+  setPeriodo(v){ if(!v) return; S.periodoActivo=v; ensurePeriodo(v); save(); renderSection(current==="facturas"?"facturas":"mes"); },
+  async subirFacturas(ev){
+    const input=ev&&ev.target; const files=input&&input.files?[...input.files]:[]; if(!files.length) return;
+    ensureFacturas(); const ya=new Set(S.facturas.map(f=>f.uuid)); let ok=0,dup=0; const errs=[]; const meses={};
+    for(const file of files){
+      try{
+        if(file.size>2*1024*1024) throw new Error("pesa más de 2 MB");
+        const fa=parseCFDI(await file.text());
+        if(ya.has(fa.uuid)){dup++;continue;}
+        S.facturas.push(fa); ya.add(fa.uuid); ok++; meses[fa.fecha.slice(0,7)]=(meses[fa.fecha.slice(0,7)]||0)+1;
+      }catch(e){ errs.push(escapeHtml(file.name)+": "+escapeHtml(e.message||String(e))); }
+    }
+    if(input) input.value="";
+    S.facturas.sort((a,b)=>String(a.fecha).localeCompare(String(b.fecha)));
+    const ms=Object.keys(meses).sort(); if(ms.length) S.periodoActivo=ms[ms.length-1];
+    facUltimo=`<b>Carga:</b> ${ok} factura(s) agregada(s)${ms.length?(" ("+ms.map(m=>nombreMes(m)+": "+meses[m]).join(", ")+")"):""}${dup?(" · "+dup+" ya existían (no se duplicaron)"):""}${errs.length?("<br><b>No se cargaron "+errs.length+":</b> "+errs.join(" · ")):""}`;
+    if(ok) save(); renderKPIs(); renderChain(); renderSection("facturas"); toast(ok+" factura(s) cargada(s)");
+  },
+  toggleFacCancelada(uuid){ ensureFacturas(); const fa=S.facturas.find(f=>f.uuid===uuid); if(!fa) return; if(fa.cancelada) delete fa.cancelada; else fa.cancelada=true; save(); renderKPIs(); renderChain(); renderSection(current); },
+  delFactura(uuid){ ensureFacturas(); const fa=S.facturas.find(f=>f.uuid===uuid); if(!fa) return;
+    askConfirm("¿Eliminar la factura <b>"+escapeHtml([fa.serie,fa.folio].filter(Boolean).join("-")||fa.uuid)+"</b> del "+escapeHtml(fa.fecha)+"? Puedes volver a subir su XML después.",()=>{
+      S.facturas=S.facturas.filter(f=>f.uuid!==uuid); save(); renderKPIs(); renderChain(); renderSection(current); toast("Factura eliminada"); },"Eliminar"); },
   mesTodos(v){ const P=ensurePeriodo(periodoKey()); S.inserts.forEach(i=>{ const id=String(i.id); if(!P.items[id])P.items[id]={}; P.items[id].inc=v; }); save(); renderSection("mes"); },
   mesCopiarVol(){ const P=ensurePeriodo(periodoKey()); let n=0;
     S.inserts.forEach(i=>{ const id=String(i.id); const v=num((S.perInsert[id]||{}).volumen);
