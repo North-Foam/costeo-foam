@@ -152,7 +152,7 @@ function compute(){
   // Indirectos por clasificación
   const byClass=cl=>S.indirectos.filter(i=>i.cl===cl).reduce((a,i)=>a+montoIndirecto(i),0);
   R.indVar=byClass("Indirecto variable")*f("consumibles"); R.indFijo=byClass("Indirecto fijo");
-  R.indFabril=R.indVar+R.indFijo;
+  R.indFabril=R.indVar+R.indFijo+byClass("Directo"); // A5: "Directo" ya no se pierde: entra al pool de manufactura
   R.indAdmin=byClass("Administrativo"); R.indComercial=byClass("Comercial");
   R.indLog=byClass("Logístico")*f("flete"); R.indFin=byClass("Financiero"); R.indDir=byClass("Directo");
   // Energía
@@ -187,7 +187,9 @@ function compute(){
   const fin=S.financiero;
   R.diasNetos=Math.max(0,num(fin.diasInv)+num(fin.diasCliente)-num(fin.diasProveedor));
   R.finTiempo=fin.activar?num(fin.tasaAnual)*R.diasNetos/365:0;
-  R.finTotal=(fin.activar?R.finTiempo+num(fin.comision)+num(fin.difCambiario)+num(fin.reservaFX):0)*f("financiero");
+  // A6: la comisión bancaria es % del precio de venta; el resto (tiempo, diferencial y reserva cambiaria) es % sobre el costo
+  R.finTotal=(fin.activar?R.finTiempo+num(fin.difCambiario)+num(fin.reservaFX):0)*f("financiero");
+  R.comisionVenta=(fin.activar?num(fin.comision):0)*f("financiero");
   // Ruta por operación
   R.rutaCalc=S.ruta.map(r=>{
     const ct=centro(r.ce);
@@ -233,11 +235,12 @@ function compute(){
     const admin=conversion*R.pctAdmin, comercial=conversion*R.pctComercial, logistica=conversion*R.pctLog;
     const base=costoManuf+admin+comercial+logistica;
     const financiamiento=base*R.finTotal, garantiaMXN=base*garantia;
-    const costoIntegral=base+financiamiento+garantiaMXN;
     const complete = materialUSD>0 && conversion>0;
-    const precioSug = (complete && (1-margenObj)>0)?costoIntegral/(1-margenObj):null;
     const precioClUSD=num(ins.q26)*f("precioVenta");
     const precioClMXN=precioClUSD*R.tc;
+    const comisionMXN=precioClMXN*R.comisionVenta;
+    const costoIntegral=base+financiamiento+garantiaMXN+comisionMXN;
+    const precioSug = (complete && (1-margenObj-R.comisionVenta)>0)?(base+financiamiento+garantiaMXN)/(1-margenObj-R.comisionVenta):null;
     const utilidad = complete?precioClMXN-costoIntegral:null;
     const margenReal = (complete&&precioClMXN>0)?utilidad/precioClMXN:null;
     const markup = (complete&&costoIntegral>0)?utilidad/costoIntegral:null;
@@ -250,7 +253,7 @@ function compute(){
     const vol=getVolVista(String(ins.id))*f("volumen");
     const contribUnit=precioClMXN-materialMXN;
     return {ins,mermaMat,materialUSD,materialMXN,mo:a.mo,maq:a.maq,ind:a.ind,conversion,costoManuf,
-      admin,comercial,logistica,financiamiento,garantiaMXN,costoIntegral,margenObj,precioSug,
+      admin,comercial,logistica,financiamiento,garantiaMXN,comisionMXN,costoIntegral,margenObj,precioSug,
       precioClUSD,precioClMXN,utilidad,margenReal,markup,complete,luz,estado,nrows:a.nrows,
       vol,contribUnit,contribMes:contribUnit*vol,ingresoMes:precioClMXN*vol,
       costoMes:complete?costoIntegral*vol:null,utilMes:complete?utilidad*vol:null,
@@ -277,8 +280,8 @@ function compute(){
     {k:"Insertos con margen < objetivo",v:bajoObj,rev:bajoObj>0},
     {k:"Costos mensuales clave PENDIENTES",v:pend,rev:pend>0},
     {k:"Centros sin capacidad práctica",v:(R.capPractica>0?0:CENTROS.length),rev:R.capPractica<=0},
-    {k:"Diferencia pool vs componentes",v:0,rev:false},
-    {k:"Errores de cálculo",v:0,rev:false}
+    {k:"Tipo de cambio capturado",v:(R.tc>0?0:1),rev:!(R.tc>0)},
+    {k:"Errores de cálculo (costos no numéricos)",v:R.integral.filter(i=>!isFinite(i.costoIntegral)||!isFinite(i.precioClMXN)).length,rev:R.integral.some(i=>!isFinite(i.costoIntegral)||!isFinite(i.precioClMXN))}
   ];
   R.incompletos=inc; R.sinRuta=sinRuta; R.bajoObj=bajoObj; R.pend=pend;
   return R;
@@ -411,10 +414,11 @@ const SECTIONS=[
   {id:"energia",ix:"09",name:"Energía y pool"},
   {id:"centros",ix:"10",name:"Centros de costo"},
   {id:"ruta",ix:"11",name:"Ruta de proceso"},
-  {id:"mes",ix:"12",name:"Costeo mensual"},
-  {id:"placas",ix:"13",name:"Costeo de placas"},
-  {id:"diagrama",ix:"14",name:"Diagrama de corte"},
-  {id:"validacion",ix:"15",name:"Validación"}
+  {id:"produccion",ix:"12",name:"Producción y carga"},
+  {id:"mes",ix:"13",name:"Costeo mensual"},
+  {id:"placas",ix:"14",name:"Costeo de placas"},
+  {id:"diagrama",ix:"15",name:"Diagrama de corte"},
+  {id:"validacion",ix:"16",name:"Validación"}
 ];
 let current="dashboard";
 
@@ -554,9 +558,11 @@ function secControl(R){
       <tr><td class="l">Reserva de riesgo cambiario</td><td>${inp("financiero.reservaFX",{pct:true})}<span class="unit">%</span></td></tr>
       <tr class="sub"><td class="l">Días financiados netos</td><td class="mono val-calc">${fN(R.diasNetos,0)}</td></tr>
       <tr class="sub"><td class="l">Costo financiero por tiempo</td><td class="mono val-calc">${fPct(R.finTiempo)}</td></tr>
-      <tr class="total"><td class="l">% financiero total (sobre costo)</td><td class="mono">${fPct(R.finTotal)}</td></tr>
+      <tr class="total"><td class="l">% financiero sobre costo</td><td class="mono">${fPct(R.finTotal)}</td></tr>
+      <tr class="total"><td class="l">Comisión bancaria sobre precio de venta</td><td class="mono">${fPct(R.comisionVenta)}</td></tr>
     </table>
-    <div class="note" style="margin-top:12px">Costo financiero = base × tasa anual × días financiados ÷ 365, más comisiones y coberturas. Días financiados netos = inventario + crédito al cliente − crédito del proveedor. Se aplica en el costo integral como % sobre el costo previo.</div></div></div>
+    ${(S.financiero.activar&&num(S.financiero.tasaAnual)>0&&R.indFin>0)?`<div class="note" style="margin-top:8px;border-color:var(--amber)"><b>Ojo:</b> tienes ${fMXN(R.indFin)} de gastos clasificados como <b>Financiero</b> en Indirectos y además una tasa anual aquí. Si esos gastos son los mismos intereses, se cuentan dos veces: deja uno de los dos.</div>`:''}
+    <div class="note" style="margin-top:12px">Costo financiero = base × tasa anual × días financiados ÷ 365, más diferencial y reserva cambiaria, aplicado como % sobre el costo previo. Días financiados netos = inventario + crédito al cliente − crédito del proveedor. La <b>comisión bancaria</b> se cobra sobre el precio de venta, por eso el precio sugerido = costo ÷ (1 − margen − comisión).</div></div></div>
   </div>`;
 }
 
@@ -663,6 +669,7 @@ function secIndirectos(R){
       <div class="card"><h3>Roll-ups por naturaleza</h3><div class="body"><table>
         <tr><td class="l">Indirecto variable (fabril)</td><td class="mono val-calc">${fMXN(R.indVar)}</td></tr>
         <tr><td class="l">Indirecto fijo (fabril)</td><td class="mono val-calc">${fMXN(R.indFijo)}</td></tr>
+        <tr><td class="l">Directo (se suma a fabriles)</td><td class="mono val-calc">${fMXN(R.indDir)}</td></tr>
         <tr class="total"><td class="l">Total indirectos fabriles → pool</td><td class="mono">${fMXN(R.indFabril)}</td></tr>
         <tr><td class="l">Administrativo → integral</td><td class="mono val-calc">${fMXN(R.indAdmin)}</td></tr>
         <tr><td class="l">Comercial → integral</td><td class="mono val-calc">${fMXN(R.indComercial)}</td></tr>
@@ -790,7 +797,7 @@ function nextInsId(){
 function clienteDe(ins){ return (ins&&ins.cliente)?String(ins.cliente).trim():""; }
 function clienteLabel(ins){ return clienteDe(ins)||"Sin cliente"; }
 function ensureClientes(){
-  ensureFacturas();
+  ensureFacturas(); ensureProduccion();
   if(!Array.isArray(S.clientes)) S.clientes=[];
   // normalizar material de pieza guardado como texto ("1","2","3") a número
   (S.inserts||[]).forEach(i=>{ const pz=i&&i.diseno&&i.diseno.piezas; if(Array.isArray(pz)) pz.forEach(p=>{ if(p&&typeof p.mat==="string"){ const n=Number(p.mat); p.mat=(Number.isFinite(n)&&n>=1&&n<=3)?n:1; } }); });
@@ -1129,9 +1136,30 @@ function badgePeriodo(k){
   if(e==="borrador") return `<span class="pill" style="background:var(--amberBg);color:#8a6100" title="Datos capturados sin cerrar">Borrador</span>`;
   return `<span class="pill" style="background:var(--grayBg);color:var(--muted)" title="Sin datos capturados">Sin datos</span>`;
 }
-function computeMes(R,k){
+const CIERRE_CAMPOS=["materialMXN","mo","maq","ind","admin","comercial","logistica","financiamiento","garantiaMXN","comisionMXN","costoIntegral","precioSug","precioClMXN","margenObj","disenoUSD"];
+function snapshotCierre(R,k){
+  const M=computeMes(R,k,true); const items={};
+  R.integral.forEach(it=>{ const o={}; CIERRE_CAMPOS.forEach(c=>{ const v=it[c]; o[c]=(v==null||!isFinite(v))?null:Math.round(v*10000)/10000; }); o.complete=it.complete?1:0; o.tieneDiseno=it.tieneDiseno?1:0; items[String(it.ins.id)]=o; });
+  return {fecha:new Date().toISOString().slice(0,10),tc:R.tc,gf:M.fijos,items};
+}
+function itCongelado(it,c){
+  const o={...it}; CIERRE_CAMPOS.forEach(k=>{ o[k]=c[k]==null?null:num(c[k]); });
+  o.complete=!!c.complete; o.tieneDiseno=!!c.tieneDiseno; o.conversion=num(c.mo)+num(c.maq)+num(c.ind);
+  o.utilidad=o.complete?o.precioClMXN-o.costoIntegral:null;
+  o.margenReal=(o.complete&&o.precioClMXN>0)?o.utilidad/o.precioClMXN:null;
+  o.markup=(o.complete&&o.costoIntegral>0)?o.utilidad/o.costoIntegral:null;
+  o.contribUnit=o.precioClMXN-o.materialMXN;
+  if(!o.complete){o.luz="g";o.estado="COSTEO INCOMPLETO";}
+  else if(o.margenReal<0){o.luz="r";o.estado="Rojo · margen negativo";}
+  else if(o.margenReal<o.margenObj){o.luz="a";o.estado="Amarillo · bajo objetivo";}
+  else {o.luz="v";o.estado="Verde · cumple objetivo";}
+  return o;
+}
+function computeMes(R,k,sinCongelar){
   const P=ensurePeriodo(k||periodoKey());
-  const filas=R.integral.map((it,i)=>{
+  const cong=(!sinCongelar&&P.estado==="cerrado"&&P.cierre&&P.cierre.items)?P.cierre:null;
+  const filas=R.integral.map((it0,i)=>{
+    const it=(cong&&cong.items[String(it0.ins.id)])?itCongelado(it0,cong.items[String(it0.ins.id)]):it0;
     const id=String(it.ins.id); const cfg=P.items[id]||{};
     const inc=cfg.inc===true; const vol=num(cfg.vol);
     const ventas=it.precioClMXN*vol;
@@ -1149,7 +1177,7 @@ function computeMes(R,k){
   const costoAbs=comp.reduce((a,f)=>a+f.costo,0);
   const utilAbs=comp.reduce((a,f)=>a+f.util,0);
   const piezas=act.reduce((a,f)=>a+f.vol,0);
-  const Pre=computePresupuesto(R);
+  const Pre=computePresupuesto(R,k);
   // Requerimiento de material del mes (consolidado por material)
   const pzRows=[]; const porMat={}; let matUSD=0;
   act.forEach(f=>{
@@ -1177,8 +1205,8 @@ function computeMes(R,k){
   const clientes=Object.values(porCli).map(g=>({...g,margen:(g.ventas>0&&g.completos?g.util/g.ventas:null)}))
                    .sort((a,b)=>b.ventas-a.ventas);
   return {P,filas,act,comp,ventas,material,contrib,costoAbs,utilAbs,piezas,
-          margen:(ventas>0?utilAbs/ventas:null), fijos:Pre.GF,
-          utilOper:contrib-Pre.GF, incompletos:act.length-comp.length,
+          margen:(ventas>0?utilAbs/ventas:null), fijos:(cong&&cong.gf!=null)?num(cong.gf):Pre.GF,congelado:cong,
+          utilOper:contrib-((cong&&cong.gf!=null)?num(cong.gf):Pre.GF), incompletos:act.length-comp.length,
           pzRows,mats,matUSD,totPlacasUSD,clientes};
 }
 let cliFiltro="(todos)";
@@ -1189,8 +1217,8 @@ function secMes(R){
   const rows=M.filas.filter(f=>cliFiltro==="(todos)"||clienteLabel(f.it.ins)===cliFiltro)
     .map(f=>{ const it=f.it, id=f.id, act=f.inc&&f.vol>0;
       const conv=it.mo+it.maq+it.ind;
-      const gastosOp=it.admin+it.comercial+it.logistica+it.financiamiento+it.garantiaMXN;
-      const tip=`Admin ${fMXN(it.admin)} · Comercial ${fMXN(it.comercial)} · Logística ${fMXN(it.logistica)} · Financ. ${fMXN(it.financiamiento)} · Garantías ${fMXN(it.garantiaMXN)}`;
+      const gastosOp=it.admin+it.comercial+it.logistica+it.financiamiento+it.garantiaMXN+num(it.comisionMXN);
+      const tip=`Admin ${fMXN(it.admin)} · Comercial ${fMXN(it.comercial)} · Logística ${fMXN(it.logistica)} · Financ. ${fMXN(it.financiamiento)} · Comisión bancaria ${fMXN(num(it.comisionMXN))} · Garantías ${fMXN(it.garantiaMXN)}`;
       return `<tr${f.inc?'':' style="opacity:.5"'}>
     <td class="l"><label style="display:flex;align-items:center;gap:6px;cursor:pointer">
       <input type="checkbox" data-mes="${escapeHtml(id)}" data-campo="inc" ${f.inc?'checked':''}>
@@ -1228,6 +1256,7 @@ function secMes(R){
       </div>
     </div>
 
+    ${M.congelado?`<div class="note" style="margin:0 0 12px;border-color:var(--accent)"><b>Mes cerrado: cifras congeladas</b> al ${escapeHtml(String(M.congelado.fecha||''))} (TC ${fN(num(M.congelado.tc),4)}). Los costos y precios de este mes ya no cambian aunque modifiques el catálogo, la nómina o el tipo de cambio. Para recalcularlo, reabre el mes.</div>`:''}
     <div class="hero">
       ${hcard("Ventas del mes", fMXN0(M.ventas), nombreMes(k), "", true)}
       ${hcard("Costo integral", M.comp.length?fMXN0(M.costoAbs):"—", M.incompletos?(M.incompletos+" sin ruta"):"insertos completos", M.incompletos?"a":"v")}
@@ -1322,6 +1351,104 @@ function secMes(R){
         </table>
         <div class="hint" style="padding:6px 12px">Costo teórico = consumo exacto de material. Costo por placas completas = redondeando a placas enteras a comprar${M.matUSD>0?(', desperdicio por placa incompleta '+fPct((M.totPlacasUSD-M.matUSD)/M.matUSD)):''}.</div></div></div>
     </div>`:''}`;
+}
+
+/* ===================== PRODUCCIÓN REAL Y CARGA DE PLANTA ===================== */
+function ensureProduccion(){ if(!Array.isArray(S.produccion)) S.produccion=[]; }
+function nuevoIdReg(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+// Minutos-persona estándar por pieza según la Ruta (preparación prorrateada al lote + minutos × operadores)
+function estandarMinPza(id){
+  const ops=S.ruta.filter(r=>String(r.ins)===String(id)&&isNum(r.minMO)&&num(r.lote)>0);
+  if(!ops.length) return null;
+  return ops.reduce((a,r)=>a+num(r.prep)/num(r.lote)+num(r.minMO)*Math.max(1,num(r.nop)),0);
+}
+function computeProduccion(R,k){
+  ensureProduccion();
+  const regs=S.produccion.map((r,i)=>({r,i})).filter(o=>String(o.r.fecha||"").slice(0,7)===k);
+  const porIns={}; let minPersona=0, minReloj=0, piezas=0, rech=0;
+  regs.forEach(({r})=>{
+    const id=String(r.ins||""); const nop=Math.max(1,num(r.nop));
+    const mp=(num(r.prep)+num(r.min))*nop;
+    if(!porIns[id]) porIns[id]={pzas:0,rech:0,minPersona:0,minProdPersona:0,minPrepPersona:0,regs:0};
+    const g=porIns[id]; g.pzas+=num(r.pzas); g.rech+=num(r.rech); g.minPersona+=mp; g.minProdPersona+=num(r.min)*nop; g.minPrepPersona+=num(r.prep)*nop; g.regs++;
+    minPersona+=mp; minReloj+=num(r.prep)+num(r.min); piezas+=num(r.pzas); rech+=num(r.rech);
+  });
+  // Plan del mes (volúmenes de Costeo mensual)
+  const P=(S.periodos||{})[k]||{items:{}}; const byId=Object.fromEntries(R.integral.map(i=>[String(i.ins.id),i]));
+  const ids=[...new Set(Object.keys(porIns).concat(Object.keys(P.items||{}).filter(id=>(P.items[id]||{}).inc&&num((P.items[id]||{}).vol)>0)))]
+    .sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
+  let hReq=0, hStdProd=0;
+  const filas=ids.map(id=>{
+    const cfg=(P.items||{})[id]||{}; const plan=(cfg.inc&&num(cfg.vol)>0)?num(cfg.vol):0;
+    const std=estandarMinPza(id); const g=porIns[id]||null; const it=byId[id];
+    const real=(g&&g.pzas>0)?g.minPersona/g.pzas:null;
+    const req=std!=null?std*plan/60:null; if(req) hReq+=req;
+    if(g&&std!=null) hStdProd+=std*g.pzas/60;
+    const efic=(real&&std!=null)?std/real:null;
+    const contribH=(it&&std)?(it.precioClMXN-it.materialMXN)/(std/60):null;
+    return {id,it,plan,std,req,g,real,efic,contribH};
+  });
+  const hReal=minPersona/60, hDisp=R.horasDirectas||0;
+  return {k,regs,porIns,filas,hReq,hReal,hDisp,hStdProd,piezas,rech,minReloj,
+          cargaPlan:hDisp>0?hReq/hDisp:null, utilReal:hDisp>0?hReal/hDisp:null, eficGlobal:hReal>0?hStdProd/hReal:null};
+}
+function secProduccion(R){
+  ensureProduccion();
+  const k=periodoKey(); const X=computeProduccion(R,k);
+  const insIds=S.inserts.map(i=>String(i.id));
+  const fRows=X.filas.map(f=>`<tr>
+      <td class="l mono">${escapeHtml(f.id)}</td><td class="l">${escapeHtml(f.it?clienteLabel(f.it.ins):'—')}</td>
+      <td class="mono val-calc">${f.plan?fN(f.plan,0):'—'}</td>
+      <td class="mono val-calc">${f.std==null?'<span class="val-pend">sin Ruta</span>':fN(f.std,1)}</td>
+      <td class="mono val-calc">${f.req==null?'—':fN(f.req,1)}</td>
+      <td class="mono val-calc">${f.g?fN(f.g.pzas,0):'—'}</td>
+      <td class="mono val-calc" style="font-weight:700">${f.real==null?'—':fN(f.real,1)}</td>
+      <td class="mono val-calc">${f.g?fN(f.g.minPersona/60,1):'—'}</td>
+      <td class="l">${f.efic==null?'—':`<span class="lz ${f.efic>=0.9&&f.efic<=1.15?'v':(f.efic<0.75||f.efic>1.4?'r':'a')}"><span class="b"></span>${fPct(f.efic)}</span>`}</td>
+      <td class="mono val-calc" title="(Precio − material) ÷ horas-persona estándar por pieza">${f.contribH==null?'—':fMXN0(f.contribH)}</td>
+      <td>${f.g&&f.g.pzas>0?`<button class="rowbtn" style="margin:0" data-click="aplicarTiempoReal('${escapeHtml(f.id)}')" title="Pasa los minutos reales del mes a la Ruta de proceso de este inserto">Usar en Ruta</button>`:''}</td></tr>`).join("");
+  const rRows=X.regs.slice().sort((a,b)=>String(b.r.fecha).localeCompare(String(a.r.fecha))).map(({r,i})=>{
+    const nop=Math.max(1,num(r.nop)); const mp=(num(r.prep)+num(r.min))*nop;
+    return `<tr>
+      <td><input type="date" class="f" style="width:140px" data-path="produccion.${i}.fecha" data-type="text" value="${escapeHtml(r.fecha||'')}"></td>
+      <td class="l">${sel(`produccion.${i}.ins`,insIds.includes(String(r.ins))?insIds:[String(r.ins||'')].concat(insIds))}</td>
+      <td>${inp(`produccion.${i}.pzas`)}</td><td>${inp(`produccion.${i}.rech`)}</td>
+      <td>${inp(`produccion.${i}.prep`)}</td><td>${inp(`produccion.${i}.min`)}</td><td>${inp(`produccion.${i}.nop`)}</td>
+      <td class="mono val-calc">${fN(mp,0)}</td>
+      <td class="mono val-calc">${num(r.pzas)>0?fN(mp/num(r.pzas),1):'—'}</td>
+      <td class="l"><input class="f txt wide" data-path="produccion.${i}.nota" data-type="text" value="${escapeHtml(r.nota||'')}" placeholder="opcional"></td>
+      <td><button class="del" data-click="delRegistro(${i})" title="Eliminar registro">✕</button></td></tr>`;
+  }).join("");
+  const libre=X.hDisp-X.hReq;
+  return head("Producción real y carga de planta","BITÁCORA · CARGA",
+    "Registra cada día qué inserto se trabajó, cuántas piezas, cuánto tiempo y cuántas personas. La app compara los minutos reales contra la <b>Ruta de proceso</b> y calcula la carga de planta: horas-persona que pide el plan del mes contra las disponibles.")
+  +`<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+      <div class="exsel" style="display:inline-flex"><span>Periodo</span>
+        <input type="month" class="f" style="width:140px" value="${escapeHtml(k)}" data-change="setPeriodo(this.value)"></div>
+      <button class="btn primary" data-click="addRegistro()">+ Registrar producción</button>
+      <span class="hint">${nombreMes(k)} · ${X.regs.length} registro(s) · ${fN(X.piezas,0)} piezas · ${fN(X.hReal,1)} h-persona</span>
+    </div>
+    <div class="hero">
+      ${hcard("Horas-persona disponibles",fN(X.hDisp,0),"personal directo del mes","",true)}
+      ${hcard("Requeridas por el plan",fN(X.hReq,1),X.cargaPlan==null?"captura nómina y capacidad":("carga de planta "+fPct(X.cargaPlan)),X.cargaPlan==null?"g":(X.cargaPlan>1?"r":(X.cargaPlan>0.85?"a":"v")))}
+      ${hcard("Reales registradas",fN(X.hReal,1),X.utilReal==null?"—":("utilización real "+fPct(X.utilReal)),X.hReal>0?"":"g")}
+      ${hcard(libre>=0?"Capacidad libre":"Faltan horas",fN(Math.abs(libre),1)+' <small>h</small>',libre>=0?"para vender más volumen":"el plan excede la capacidad: horas extra o más personal",libre>=0?"v":"r")}
+    </div>
+    ${X.eficGlobal!=null?`<div class="note" style="margin:0 0 12px">Eficiencia del mes: lo producido equivale a <b>${fN(X.hStdProd,1)} h</b> según la Ruta y tomó <b>${fN(X.hReal,1)} h</b> reales (<b>${fPct(X.eficGlobal)}</b>). ${X.eficGlobal<0.8?'Los tiempos de la Ruta parecen <b>subestimados</b>: tus costos de conversión salen bajos. Revisa los insertos en rojo y usa “Usar en Ruta”.':(X.eficGlobal>1.25?'Se produce más rápido que la Ruta: los tiempos estándar podrían estar sobrados.':'Los tiempos de la Ruta son consistentes con lo real.')}</div>`:''}
+    <div class="sechead" style="margin-top:6px"><h2 style="font-size:17px">Estándar vs. real por inserto</h2><span class="src">${nombreMes(k)}</span></div>
+    ${X.filas.length?`<div class="tabla-integral" style="margin-top:8px"><table class="compact"><thead><tr>
+      <th class="l">Inserto</th><th class="l">Cliente</th><th>Piezas<br>plan</th><th>Min-persona/pza<br>Ruta</th><th>Horas req.<br>plan</th>
+      <th>Piezas<br>registradas</th><th>Min-persona/pza<br>real</th><th>Horas<br>reales</th><th class="l">Eficiencia<br>(Ruta ÷ real)</th><th>Contribución<br>por hora</th><th></th>
+      </tr></thead><tbody>${fRows}</tbody>
+      <tfoot><tr class="total"><td class="l">Total</td><td></td><td></td><td></td><td class="mono">${fN(X.hReq,1)}</td><td class="mono">${fN(X.piezas,0)}</td><td></td><td class="mono">${fN(X.hReal,1)}</td><td class="l">${X.eficGlobal==null?'':fPct(X.eficGlobal)}</td><td></td><td></td></tr></tfoot></table></div>
+    <div class="note" style="margin-top:6px"><b>Contribución por hora</b> = (precio − material) ÷ horas-persona por pieza: cuando la planta está llena conviene priorizar los insertos con el valor más alto. <b>Usar en Ruta</b> copia a la Ruta los minutos reales del mes (preparación promedio por registro como lote y minutos por pieza por persona).</div>`
+      :`<div class="note">No hay plan ni registros en ${nombreMes(k)}. Marca insertos y volúmenes en <b>Costeo mensual</b> o registra producción.</div>`}
+    <div class="sechead" style="margin-top:18px"><h2 style="font-size:17px">Bitácora de ${nombreMes(k)}</h2><span class="src">${X.regs.length} registro(s)</span></div>
+    ${X.regs.length?`<div class="tabla-integral" style="margin-top:8px"><table class="compact"><thead><tr>
+      <th class="l">Fecha</th><th class="l">Inserto</th><th>Piezas<br>buenas</th><th>Piezas<br>rechazadas</th><th>Min<br>preparación</th><th>Min<br>producción</th><th>Personas</th>
+      <th>Min-persona<br>total</th><th>Min-persona<br>por pieza</th><th class="l">Nota</th><th></th>
+      </tr></thead><tbody>${rRows}</tbody></table></div>`:`<div class="note">Aún no hay registros de este mes.</div>`}
+    <div class="note" style="margin-top:8px"><b>Cómo capturar:</b> un renglón por inserto y jornada (o por lote). <b>Min preparación</b> = tiempo de reloj para alistar el lote (sacar placas, ajustar máquina, cambiar cuchilla). <b>Min producción</b> = tiempo de reloj desde la primera pieza hasta dejar el lote empacado. <b>Personas</b> = cuántas trabajaron en ese lote al mismo tiempo. La app multiplica tiempo × personas para obtener minutos-persona. Limpieza, recibo de material, esperas y mantenimiento no se registran aquí: van en Capacidad como mantenimiento o paros.</div>`;
 }
 
 /* ===================== FACTURAS DE VENTA (CFDI XML) ===================== */
@@ -1515,7 +1642,18 @@ document.addEventListener("change",e=>{
 /* ---------- VALIDACIÓN ---------- */
 function secValidacion(R){
   ensureFacturas(); let sinIns=0; S.facturas.filter(f=>!f.cancelada).forEach(f=>(f.conceptos||[]).forEach(c=>{ if(!insDeConcepto(c)) sinIns++; }));
-  const rows=R.valid.concat([{k:"Conceptos facturados sin inserto",v:sinIns,rev:sinIns>0}]).map(v=>`<tr><td class="l">${v.k}</td><td class="mono val-calc">${v.v}</td>
+  const kV=periodoKey(); const XV=computeProduccion(computeAt(kV),kV);
+  const sinSueldo=S.empleados.filter(e=>num(e.n)>0&&!(num(e.sueldo)>0)).length;
+  const desv=XV.filas.filter(f=>f.efic!=null&&(f.efic<0.75||f.efic>1.33)).length;
+  const sinMonto=S.indirectos.filter(i=>i.m==null||i.m==="").length;
+  const extra=[
+    {k:"Conceptos facturados sin inserto",v:sinIns,rev:sinIns>0},
+    {k:"Puestos con personas pero sin sueldo",v:sinSueldo,rev:sinSueldo>0},
+    {k:"Indirectos sin monto capturado (informativo)",v:sinMonto,rev:false},
+    {k:"Plan de "+nombreMes(kV)+": horas requeridas > disponibles",v:(XV.hReq>XV.hDisp&&XV.hDisp>0)?1:0,rev:XV.hReq>XV.hDisp&&XV.hDisp>0},
+    {k:"Insertos con tiempo real ±25% vs. Ruta ("+nombreMes(kV)+")",v:desv,rev:desv>0}
+  ];
+  const rows=R.valid.concat(extra).map(v=>`<tr><td class="l">${v.k}</td><td class="mono val-calc">${v.v}</td>
     <td class="l"><span class="pill ${v.rev?'rev':'ok'}">${v.rev?'REVISAR':'OK'}</span></td></tr>`).join("");
   const pend=[];
   if(S.capacidad.horasUsadas==null) pend.push("Horas realmente utilizadas (Capacidad)");
@@ -1904,10 +2042,10 @@ function buildPresupuestoCharts(R){
 function renderSection(id){
   destroyCharts();
   // A4: Costeo mensual y Facturas siempre se calculan con las tarifas del mes que muestran
-  const R=(id==="mes"||id==="facturas"||id==="integral")?computeAt(periodoKey()):compute();
+  const R=(id==="mes"||id==="facturas"||id==="integral"||id==="produccion")?computeAt(periodoKey()):compute();
   const map={dashboard:secDashboard,mes:secMes,presupuesto:secPresupuesto,resumen:secResumen,control:secControl,capacidad:secCapacidad,mano:secMano,
     indirectos:secIndirectos,energia:secEnergia,centros:secCentros,
-    ruta:secRuta,financiero:secControl,facturas:secFacturas,integral:secMes,placas:secDiseno,diagrama:secDiagrama,validacion:secValidacion};
+    ruta:secRuta,financiero:secControl,facturas:secFacturas,produccion:secProduccion,integral:secMes,placas:secDiseno,diagrama:secDiagrama,validacion:secValidacion};
   const cont=document.getElementById("content");
   cont.className="content"+(puedeEditar()?"":" ro");
   cont.innerHTML=(map[id]||secDashboard)(R);
@@ -2130,6 +2268,12 @@ function buildWorkbook(){
   });
   if(dc.length>1) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(dc), "Diagrama corte");
   if(nc.length>1) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(nc), "Nesting combinado");
+  ensureProduccion();
+  if(S.produccion.length){
+    const pr=[["Fecha","Inserto","Piezas buenas","Piezas rechazadas","Min preparación","Min producción","Personas","Min-persona total","Min-persona por pieza","Nota"]];
+    S.produccion.slice().sort((a,b)=>String(a.fecha).localeCompare(String(b.fecha))).forEach(r=>{ const mp=(num(r.prep)+num(r.min))*Math.max(1,num(r.nop)); pr.push([r.fecha||"",String(r.ins||""),num(r.pzas),num(r.rech),num(r.prep),num(r.min),Math.max(1,num(r.nop)),r2(mp),num(r.pzas)>0?r2(mp/num(r.pzas)):"",r.nota||""]); });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(pr), "Producción real");
+  }
   ensureFacturas();
   if(S.facturas.length){
     const fx=[["UUID","Fecha","Serie","Folio","Tipo","Cliente","RFC cliente","Moneda","TC","No. identificación","Inserto","Descripción","Cantidad","Valor unitario","Importe","Importe MXN","Estado"]];
@@ -2183,7 +2327,8 @@ const app={
       const P=ensurePeriodo(k); P.indirectos={}; save(); renderKPIs(); renderChain(); renderSection("indirectos"); toast("Montos del mes limpiados");
     },"Limpiar"); },
   mesCerrar(){ if(!esAdmin()) return; const k=periodoKey(); const P=ensurePeriodo(k);
-    P.estado=(P.estado==="cerrado")?null:"cerrado"; save(); renderSection("mes");
+    if(P.estado==="cerrado"){ P.estado=null; delete P.cierre; } else { P.estado="cerrado"; P.cierre=snapshotCierre(computeAt(k),k); }
+    save(); renderSection("mes");
     toast(P.estado==="cerrado"?(nombreMes(k)+" cerrado"):(nombreMes(k)+" reabierto")); },
   mesBorrar(){ const k=periodoKey();
     if(!esAdmin()){ toast("Solo el Administrador puede borrar un periodo"); return; }
@@ -2200,7 +2345,7 @@ const app={
   abrirAcceso(){ NF.openAccount(); },
   setPeriodoVista(v){ S.periodoVista=v||"catalogo"; if(/^\d{4}-\d{2}$/.test(S.periodoVista)) S.periodoActivo=S.periodoVista; save(); renderKPIs(); renderChain(); renderSection(current); toast("Consultando "+etiquetaPeriodo(S.periodoVista)); },
   setPresuPeriodo(v){ S.periodoVista=v||"catalogo"; if(/^\d{4}-\d{2}$/.test(S.periodoVista)) S.periodoActivo=S.periodoVista; save(); renderKPIs(); renderChain(); renderSection("presupuesto"); },
-  setPeriodo(v){ if(!v) return; S.periodoActivo=v; S.periodoVista=v; ensurePeriodo(v); save(); renderKPIs(); renderChain(); renderSection(current==="facturas"?"facturas":"mes"); },
+  setPeriodo(v){ if(!v) return; S.periodoActivo=v; S.periodoVista=v; ensurePeriodo(v); save(); renderKPIs(); renderChain(); renderSection((current==="facturas"||current==="produccion")?current:"mes"); },
   async subirFacturas(ev){
     const input=ev&&ev.target; const files=input&&input.files?[...input.files]:[]; if(!files.length) return;
     ensureFacturas(); const ya=new Set(S.facturas.map(f=>f.uuid)); let ok=0,dup=0; const errs=[]; const meses={};
@@ -2218,6 +2363,27 @@ const app={
     facUltimo=`<b>Carga:</b> ${ok} factura(s) agregada(s)${ms.length?(" ("+ms.map(m=>nombreMes(m)+": "+meses[m]).join(", ")+")"):""}${dup?(" · "+dup+" ya existían (no se duplicaron)"):""}${errs.length?("<br><b>No se cargaron "+errs.length+":</b> "+errs.join(" · ")):""}`;
     if(ok) save(); renderKPIs(); renderChain(); renderSection("facturas"); toast(ok+" factura(s) cargada(s)");
   },
+  addRegistro(){ ensureProduccion(); if(!S.inserts.length){ toast("Primero crea un inserto en Costeo de placas"); return; }
+    const k=periodoKey(); const hoy=new Date().toISOString().slice(0,10);
+    const fecha=hoy.slice(0,7)===k?hoy:(k+"-01");
+    const ultimo=S.produccion[S.produccion.length-1];
+    S.produccion.push({id:nuevoIdReg(),fecha,ins:String(ultimo&&S.inserts.some(x=>String(x.id)===String(ultimo.ins))?ultimo.ins:S.inserts[0].id),pzas:null,rech:null,prep:null,min:null,nop:ultimo?num(ultimo.nop)||1:1,nota:null});
+    save(); renderSection("produccion"); },
+  delRegistro(i){ ensureProduccion(); if(!S.produccion[i]) return; S.produccion.splice(i,1); save(); renderKPIs(); renderChain(); renderSection(current); },
+  aplicarTiempoReal(id){
+    const k=periodoKey(); const X=computeProduccion(computeAt(k),k); const g=X.porIns[String(id)];
+    if(!g||!(g.pzas>0)){ toast("No hay registros con piezas de "+id+" en "+nombreMes(k)); return; }
+    const ops=S.ruta.filter(r=>String(r.ins)===String(id));
+    const nop=ops.length?Math.max(1,num(ops[0].nop)):1;
+    const lote=Math.max(1,Math.round(g.pzas/g.regs)), prep=Math.round(g.minPrepPersona/g.regs*100)/100;
+    const minMO=Math.round(g.minProdPersona/g.pzas/nop*100)/100;
+    const antes=estandarMinPza(id);
+    const despues=prep/lote+minMO*nop;
+    askConfirm(`¿Actualizar la Ruta del inserto <b>${escapeHtml(String(id))}</b> con los tiempos reales de ${nombreMes(k)}?<br><br>Preparación: <b>${fN(prep,1)} min</b> por lote de <b>${lote}</b> piezas<br>Producción: <b>${fN(minMO,2)} min</b> por pieza × ${nop} persona(s)<br>Minutos-persona por pieza: ${antes==null?'—':fN(antes,1)} → <b>${fN(despues,1)}</b>${ops.length>1?'<br><br>Este inserto tiene '+ops.length+' operaciones; se dejará una sola operación con el tiempo total.':''}`,()=>{
+      const base=ops[0]||{ins:String(id),op:10,proc:CENTRO_PROD,ce:CENTRO_PROD,minMaq:null,nop:1,retrab:0,merma:0};
+      S.ruta=S.ruta.filter(r=>String(r.ins)!==String(id));
+      S.ruta.push({...base,ins:String(id),prep,lote,minMO,nop});
+      save(); renderKPIs(); renderChain(); renderSection("produccion"); toast("Ruta de "+id+" actualizada con tiempos reales"); },"Actualizar Ruta"); },
   toggleFacCancelada(uuid){ ensureFacturas(); const fa=S.facturas.find(f=>f.uuid===uuid); if(!fa) return; if(fa.cancelada) delete fa.cancelada; else fa.cancelada=true; save(); renderKPIs(); renderChain(); renderSection(current); },
   delFactura(uuid){ ensureFacturas(); const fa=S.facturas.find(f=>f.uuid===uuid); if(!fa) return;
     askConfirm("¿Eliminar la factura <b>"+escapeHtml([fa.serie,fa.folio].filter(Boolean).join("-")||fa.uuid)+"</b> del "+escapeHtml(fa.fecha)+"? Puedes volver a subir su XML después.",()=>{
