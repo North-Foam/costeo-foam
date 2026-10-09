@@ -1193,8 +1193,7 @@ function secMes(R){
     <td title="${escapeHtml('En pesos: '+fMXN(it.precioClMXN))}">${inp(`inserts.${f.i}.q26`)}</td>
     <td class="mono val-calc">${act?fMXN(f.ventas):'—'}</td>
     <td class="mono val-calc" style="font-weight:700">${act&&it.complete?fMXN(f.util):'—'}</td>
-    <td class="mono" title="Markup ${it.markup==null?'—':fPct(it.markup)}">${it.margenReal==null?'—':fPct(it.margenReal)}</td>
-    <td class="l"><span class="lz ${it.luz}"><span class="b"></span>${it.estado.replace(' · ','·').replace('COSTEO INCOMPLETO','Incompleto')}</span></td></tr>`; }).join("");
+    <td class="mono" title="Markup ${it.markup==null?'—':fPct(it.markup)}">${it.margenReal==null?'—':fPct(it.margenReal)}</td></tr>`; }).join("");
   const hist=Object.keys(S.periodos||{}).sort().reverse();
   return head("Costeo mensual — insertos trabajados en el mes","REPORTE POR PERIODO",
     "Selecciona el mes y marca qué insertos se trabajan, con su volumen del periodo. Aquí ves el costo integral completo de cada inserto (material, conversión de la <b>Ruta de proceso</b> y gastos de operación), su precio sugerido y su margen. Cada periodo se guarda por separado para consultarlo después.")
@@ -1225,12 +1224,12 @@ function secMes(R){
       <th class="l">Incluir / inserto</th><th class="l">Cliente</th><th>Vol.<br>del mes</th><th>Mat.<br>(USD)</th><th>%<br>Merma</th>
       <th>Material<br>u. (MXN)</th><th>Conversión<br>u. (MXN)</th><th>Gastos op.<br>u. (MXN)</th><th>Costo<br>integral u.</th>
       <th>Margen<br>obj.</th><th>Precio<br>sugerido u.</th><th>Precio cli.<br>u. (USD)</th>
-      <th>Ventas<br>del mes</th><th>Utilidad<br>del mes</th><th>Margen<br>real</th><th class="l">Estado</th>
+      <th>Ventas<br>del mes</th><th>Utilidad<br>del mes</th><th>Margen<br>real</th>
       </tr></thead><tbody>${rows}</tbody>
       <tfoot><tr class="total"><td class="l">Totales del periodo</td><td></td><td class="mono">${fN(M.piezas,0)}</td>
         <td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
         <td class="mono">${fMXN(M.ventas)}</td><td class="mono">${fMXN(M.utilAbs)}</td>
-        <td class="mono">${M.margen==null?'—':fPct(M.margen)}</td><td></td></tr></tfoot></table></div>
+        <td class="mono">${M.margen==null?'—':fPct(M.margen)}</td></tr></tfoot></table></div>
     <div class="note" style="margin-top:6px">Azul = dato editable. <b>Material US$</b> se calcula en Costeo de placas; si el inserto no tiene placas capturadas puedes escribirlo aquí. <b>% merma</b>, <b>margen objetivo</b> y <b>precio cliente US$</b> son datos del inserto (aplican en todos los meses); si dejas el margen vacío usa el objetivo global (${fPct(num(S.control.margenObj)+f("deltaMargen"))}). Pasa el cursor sobre <b>Gastos op.</b> para ver el desglose (admin, comercial, logística, financiamiento y garantías), sobre <b>Precio cli.</b> para verlo en pesos y sobre <b>Margen real</b> para el markup. Sin tiempos en Ruta de proceso el inserto queda <b>incompleto</b>.</div>
 
     <div class="grid2" style="margin-top:16px">
