@@ -12,7 +12,8 @@ const toNumber = v => (typeof v === 'string' && v.trim() !== '' && Number.isFini
 const pieza = z.object({ comp: text.optional(), ...numbers(['m1','m2','grosor','cant','piezasManual','s1','s2']), mat: z.preprocess(toNumber, num.optional()).optional() }).strict();
 const period = z.object({
   items: z.record(id, z.object({ inc: z.boolean().optional(), vol: num.optional() }).strict()),
-  estado: z.enum(['cerrado']).nullable().optional(), indirectos: numericRecord.optional(), capacidad: numericRecord.optional(), energia: numericRecord.optional(), mano: numericRecord.optional()
+  estado: z.enum(['cerrado']).nullable().optional(),
+  cierre: z.object({ fecha: text, tc: num, gf: num, items: z.record(id, z.record(key, num)) }).strict().nullable().optional(), indirectos: numericRecord.optional(), capacidad: numericRecord.optional(), energia: numericRecord.optional(), mano: numericRecord.optional()
 }).strict();
 const concepto = z.object({ n: text, d: text, q: num, u: num, i: num }).strict();
 const factura = z.object({
@@ -20,6 +21,10 @@ const factura = z.object({
   serie: text.optional(), folio: text.optional(), tipo: z.enum(['I','E']), moneda: z.string().regex(/^[A-Z]{3}$/), tc: num.optional(),
   emisorRfc: text.optional(), receptorRfc: text.optional(), receptor: text.optional(), subtotal: num, total: num,
   cancelada: z.boolean().optional(), conceptos: z.array(concepto).max(500)
+}).strict();
+const registro = z.object({
+  id: z.string().regex(/^[a-z0-9]{4,24}$/), fecha: z.string().regex(/^(\d{4}-(0[1-9]|1[0-2])-\d{2})?$/), ins: id,
+  pzas: num.optional(), rech: num.optional(), prep: num.optional(), min: num.optional(), nop: num.optional(), nota: text.nullable().optional()
 }).strict();
 const schema = z.object({
   control: z.object({ escenario: z.enum(['Base','Conservador','Estrés']), tcBase: num, margenObj: num, vigenciaMeses: num, tcFecha: text.nullable(), tcAuto: z.boolean(), tcSerie: z.enum(['fix','pagos']) }).strict(),
@@ -35,7 +40,7 @@ const schema = z.object({
   presupuesto:z.object({otrosFijos:num,meta:num,periodo:z.string().regex(/^(catalogo|anio:\d{4}|\d{4}-(0[1-9]|1[0-2]))$/).optional()}).strict(),
   periodos:z.record(z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),period),
   periodoActivo:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).nullable(), periodoVista:z.string().regex(/^(catalogo|anio:\d{4}|\d{4}-(0[1-9]|1[0-2]))$/),
-  facturas:z.array(factura).max(3000).optional(), facturaMap:z.record(key,id).optional(),
+  facturas:z.array(factura).max(3000).optional(), produccion:z.array(registro).max(10000).optional(), facturaMap:z.record(key,id).optional(),
   clientes:z.array(text).max(2000), ruta:z.array(z.object({ ins:id, proc:text, ce:text, ...numbers(['op','prep','lote','minMO','minMaq','nop','retrab','merma']) }).strict()).max(10000)
 }).strict();
 export function validateState(value) {
