@@ -42,7 +42,7 @@ try{
  await waitForState(state=>state.control.tcAuto===false);
  console.log('Automatic Banxico update and opt-out verified');
  for(const section of await page.evaluate(()=>NF_MODEL.sections)){await page.locator(`[data-click="go('${section.id}')"]`).click();await page.locator('#content').waitFor({state:'visible'});}
- assert.deepEqual(errors,[]);console.log('All 16 empty-state screens verified');
+ assert.deepEqual(errors,[]);console.log('All empty-state screens verified');
  await page.locator('[data-click="go(\'placas\')"]').click();await page.locator('#newInsId').fill('NUEVO-1');await page.locator('[data-click="addNamedInsert()"]').click();await saved();
  await page.locator('[data-click="go(\'mano\')"]').click();await page.locator('[data-click="addEmp()"]').click();await saved();
  await page.locator('[data-path="empleados.0.sueldo"]').fill('1000');await page.locator('[data-path="empleados.0.sueldo"]').press('Tab');await saved();
