@@ -215,6 +215,19 @@ td.sua-off{background:repeating-linear-gradient(45deg,#f6f8f9,#f6f8f9 4px,#eef2f
 .btn.danger:hover{filter:brightness(.94)}
 @media (max-width:900px){.hero{grid-template-columns:repeat(2,1fr)}.exgrid{grid-template-columns:1fr}}
 @media (max-width:1180px){.kpis{grid-template-columns:repeat(3,1fr)}}
+/* Panel izquierdo fijo y sin scroll: tamaños se ajustan a la altura de la pantalla */
+@media (min-width:821px){
+  .nav{overflow:hidden}
+  .brand{padding:clamp(6px,1.4vh,14px) 14px clamp(6px,1.2vh,12px)}
+  .logo-wrap{padding:clamp(3px,0.8vh,8px) 12px}
+  .brand .logo{width:auto;max-width:172px;max-height:clamp(44px,12vh,133px);margin:0 auto}
+  .brand h1{margin-top:clamp(4px,0.8vh,8px)}
+  .navlist{overflow:hidden;padding:clamp(2px,0.6vh,8px) 0}
+  .navbtn{font-size:clamp(13px,2vh,14.5px);line-height:1.2;padding:clamp(3px,1vh,8px) 16px clamp(3px,1vh,8px) 15px}
+  .navbtn .ix{font-size:clamp(11px,1.4vh,12.5px)}
+}
+@media (min-width:821px) and (max-height:860px){ .navfoot{display:none} .brand .sub{display:none} }
+@media (min-width:821px) and (max-height:700px){ .brand h1{display:none} }
 @media (max-width:820px){
   .app{flex-direction:column}
   .nav{width:100%;flex:none;height:auto;position:static;flex-direction:column}
