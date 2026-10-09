@@ -47,6 +47,12 @@ function f(lever){
 function ensureEscenarios(){
   if(!S.escenarios) S.escenarios={};
   for(const k in DEFAULTS.escenarios){ if(!S.escenarios[k]) S.escenarios[k]=clone(DEFAULTS.escenarios[k]); }
+  // Siempre se trabaja con el escenario Base (las palancas por escenario se retiraron)
+  if(S.control) S.control.escenario="Base";
+  const dm=S.escenarios.deltaMargen;
+  if(dm && dm.Base!=null && dm.Base!=="" && num(dm.Base)!==0 && S.control){
+    S.control.margenObj=num(S.control.margenObj)+num(dm.Base); dm.Base=0;
+  }
 }
 
 /* --- Costeo de placas por inserto --- */
@@ -386,18 +392,17 @@ const SECTIONS=[
   {id:"dashboard",ix:"01",name:"Panel ejecutivo"},
   {id:"presupuesto",ix:"02",name:"Presupuesto y equilibrio"},
   {id:"resumen",ix:"03",name:"Resumen"},
-  {id:"control",ix:"04",name:"Control y escenarios"},
+  {id:"control",ix:"04",name:"Parámetros y costo financiero"},
   {id:"capacidad",ix:"05",name:"Capacidad"},
   {id:"mano",ix:"06",name:"Mano de obra"},
   {id:"indirectos",ix:"07",name:"Indirectos"},
   {id:"energia",ix:"08",name:"Energía y pool"},
   {id:"centros",ix:"09",name:"Centros de costo"},
   {id:"ruta",ix:"10",name:"Ruta de proceso"},
-  {id:"financiero",ix:"11",name:"Costo financiero"},
-  {id:"mes",ix:"12",name:"Costeo mensual"},
-  {id:"placas",ix:"13",name:"Costeo de placas"},
-  {id:"diagrama",ix:"14",name:"Diagrama de corte"},
-  {id:"validacion",ix:"15",name:"Validación"}
+  {id:"mes",ix:"11",name:"Costeo mensual"},
+  {id:"placas",ix:"12",name:"Costeo de placas"},
+  {id:"diagrama",ix:"13",name:"Diagrama de corte"},
+  {id:"validacion",ix:"14",name:"Validación"}
 ];
 let current="dashboard";
 
@@ -420,7 +425,7 @@ function renderKPIs(){
     ${kpi("Tasa de planta",R.tasaPlanta==null?"—":fMXN(R.tasaPlanta),"$/h")}
     ${kpi("Capacidad práctica",fN(R.capPractica,0),"h/mes")}
     ${kpi("TC efectivo",fN(R.tc,4),"MXN/USD")}
-    ${kpi("Escenario",S.control.escenario,"")}
+    ${kpi("Margen objetivo",fPct(num(S.control.margenObj)+f("deltaMargen")),"")}
     <div class="kpi state"><div class="lab">Estado del costeo</div>
       <div class="val"><span class="lz ${estadoLuz}"><span class="b"></span>${estadoTxt}</span></div></div>`;
 }
@@ -429,7 +434,6 @@ function kpi(lab,val,unit){return `<div class="kpi"><div class="lab">${lab}</div
 function renderChain(){
   const R=compute();
   const chips=[
-    ["Escenario",S.control.escenario],
     ["Periodo",etiquetaPeriodo(S.periodoVista||"catalogo")],
     ["TC efectivo",fN(R.tc,4)],
     ["Capacidad",fN(R.capPractica,0)+" h"],
@@ -488,35 +492,14 @@ function cardValidResumen(R){
 
 /* ---------- CONTROL ---------- */
 function secControl(R){
-  const levers=[
-    ["tc","Tipo de cambio (compras USD)","x"],["materiales","Precio del foam","x"],
-    ["rendimiento","Rendimiento del corte","x"],["merma","Merma de material","x"],
-    ["volumen","Volumen de producción/venta","x"],["utilizacion","Utilización de capacidad","x"],
-    ["energia","Energía eléctrica","x"],["nomina","Nómina y carga patronal","x"],
-    ["flete","Flete (entrada/cliente)","x"],["tiempoCiclo","Tiempo de ciclo por pieza","x"],
-    ["tiempoPrep","Tiempo de preparación","x"],["retrabajo","Retrabajo","x"],
-    ["rechazo","Rechazo definitivo","x"],
-    ["consumibles","Consumibles y adhesivos","x"],["garantias","Garantías/devoluciones","x"],
-    ["precioVenta","Precio de venta","x"],["financiero","Costo financiero","x"],
-    ["deltaMargen","Delta de margen objetivo","p.p."]
-  ];
-  const escenarios=["Base","Conservador","Estrés"];
-  let lrows=levers.map(([k,lab,u])=>`<tr><td class="l">${lab}</td>
-    ${escenarios.map(e=>{
-      const isBase=e==="Base";const pct=(k==="deltaMargen");
-      return `<td>${isBase&&k!=="deltaMargen"?'<span class="val-calc mono">1.00</span>':
-        inp(`escenarios.${k}.${e}`,{pct:pct,cls:"",width:""})}${pct?'<span class="unit">p.p.</span>':''}</td>`;
-    }).join("")}
-    <td class="mono val-link">${k==="deltaMargen"?fN(f(k)*(k==="deltaMargen"?100:1),k==="deltaMargen"?1:2)+(k==="deltaMargen"?' p.p.':''):fN(f(k),2)}</td></tr>`).join("");
-  return head("Control y escenarios","CONTROL · ESCENARIOS",
-    "El selector de escenario alimenta todo el modelo. El TC efectivo = TC base × factor del escenario. Base está fijo en 1.00; captura los factores de estrés en azul.")
+  return head("Parámetros y costo financiero","PARÁMETROS · COSTO FINANCIERO",
+    "Parámetros generales del modelo (tipo de cambio, margen objetivo y vigencia de precios) y el costo financiero que se aplica en el costo integral de cada inserto.")
   +`<div class="grid2">
     <div class="card"><h3>Parámetros globales</h3><div class="pad">
       <table>
-        <tr><td class="l">Escenario activo</td><td class="l">${sel("control.escenario",escenarios)}</td></tr>
         <tr><td class="l">Tipo de cambio base <span class="unit">MXN/USD</span></td><td>${inp("control.tcBase")}</td></tr>
         <tr><td class="l">Fecha de actualización del TC</td><td>${inp("control.tcFecha",{type:"text",cls:"txt",ph:"dd/mm/aaaa"})}</td></tr>
-        <tr><td class="l">TC efectivo <span class="hint">(base × escenario)</span></td><td class="mono val-calc">${fN(R.tc,4)}</td></tr>
+        <tr><td class="l">TC efectivo</td><td class="mono val-calc">${fN(R.tc,4)}</td></tr>
         <tr><td class="l">Margen objetivo por defecto</td><td>${inp("control.margenObj",{pct:true})}<span class="unit">%</span></td></tr>
         <tr><td class="l">Vigencia de precios <span class="unit">meses</span></td><td>${inp("control.vigenciaMeses")}</td></tr>
       </table>
@@ -544,11 +527,24 @@ function secControl(R){
       </div>
       <div class="note" style="margin-top:8px">Margen sobre venta = utilidad ÷ precio. Markup = utilidad ÷ costo. Precio con margen objetivo = costo integral ÷ (1 − margen).</div>
     </div></div>
-    <div class="card"><h3>Palancas por escenario</h3><div class="body"><div class="scroll" style="border:0;box-shadow:none">
-      <table><thead><tr><th class="l">Palanca</th><th>Base</th><th>Conservador</th><th>Estrés</th><th>Activo</th></tr></thead>
-      <tbody>${lrows}</tbody></table></div>
-      <div style="padding:8px 12px"><button class="rowbtn" data-click="aplicarEscenarios()">Restablecer factores neutrales</button>
-      <span class="hint">19 palancas conectadas: TC, foam, rendimiento, merma, volumen, utilización, energía, nómina, flete, tiempo de ciclo y preparación, retrabajo, rechazo, mantenimiento, consumibles, garantías, precio de venta y costo financiero. Base = todo neutral; el selector estresa el modelo completo.</span></div></div></div>
+    <div class="card"><h3>Costo financiero</h3><div class="pad"><table>
+      <tr><td class="l">Activar costo financiero</td><td class="l">
+        <select class="f" data-path="financiero.activar" data-type="bool">
+          <option value="true" ${S.financiero.activar?'selected':''}>Sí</option>
+          <option value="false" ${!S.financiero.activar?'selected':''}>No</option>
+        </select></td></tr>
+      <tr><td class="l">Días de inventario</td><td>${inp("financiero.diasInv")}</td></tr>
+      <tr><td class="l">Días de crédito al cliente</td><td>${inp("financiero.diasCliente")}</td></tr>
+      <tr><td class="l">Días de crédito del proveedor</td><td>${inp("financiero.diasProveedor")}</td></tr>
+      <tr><td class="l">Tasa anual de financiamiento</td><td>${inp("financiero.tasaAnual",{pct:true})}<span class="unit">%</span></td></tr>
+      <tr><td class="l">Comisión bancaria (s/venta)</td><td>${inp("financiero.comision",{pct:true})}<span class="unit">%</span></td></tr>
+      <tr><td class="l">Diferencial cambiario</td><td>${inp("financiero.difCambiario",{pct:true})}<span class="unit">%</span></td></tr>
+      <tr><td class="l">Reserva de riesgo cambiario</td><td>${inp("financiero.reservaFX",{pct:true})}<span class="unit">%</span></td></tr>
+      <tr class="sub"><td class="l">Días financiados netos</td><td class="mono val-calc">${fN(R.diasNetos,0)}</td></tr>
+      <tr class="sub"><td class="l">Costo financiero por tiempo</td><td class="mono val-calc">${fPct(R.finTiempo)}</td></tr>
+      <tr class="total"><td class="l">% financiero total (sobre costo)</td><td class="mono">${fPct(R.finTotal)}</td></tr>
+    </table>
+    <div class="note" style="margin-top:12px">Costo financiero = base × tasa anual × días financiados ÷ 365, más comisiones y coberturas. Días financiados netos = inventario + crédito al cliente − crédito del proveedor. Se aplica en el costo integral como % sobre el costo previo.</div></div></div>
   </div>`;
 }
 
@@ -689,7 +685,7 @@ function secEnergia(R){
       <tr><td class="l">Costo energía (consumo)</td><td class="mono val-calc">${fMXN(R.enConsumo)}</td></tr>
       <tr><td class="l">Cargo fijo mensual</td><td class="mono val-calc">${fMXN(R.enFijo)}</td></tr>
       <tr><td class="l">Energía estimada</td><td class="mono val-calc">${fMXN(R.enEstimada)}</td></tr>
-      <tr class="total"><td class="l">Subtotal energía (× escenario)</td><td class="mono">${fMXN(R.energiaSubtotal)}</td></tr>
+      <tr class="total"><td class="l">Subtotal energía</td><td class="mono">${fMXN(R.energiaSubtotal)}</td></tr>
     </table></div></div>
   </div>
   <div class="card" style="margin-top:16px"><h3>Cargas eléctricas (validación)</h3><div class="body">
@@ -759,32 +755,6 @@ function secRuta(R){
     <button class="rowbtn" data-click="rutasEstandar()">Aplicar ruta estándar (Corte/Pegado/Ensamble) a todos</button>`;
 }
 
-/* ---------- FINANCIERO ---------- */
-function secFinanciero(R){
-  return head("Costo financiero","COSTO_FINANCIERO",
-    "Costo financiero = base × tasa anual × días financiados ÷ 365, más comisiones y coberturas. Se aplica en el costo integral como % sobre el costo previo.")
-  +`<div class="grid2">
-    <div class="card"><h3>Parámetros</h3><div class="pad"><table>
-      <tr><td class="l">Activar costo financiero</td><td class="l">
-        <select class="f" data-path="financiero.activar" data-type="bool">
-          <option value="true" ${S.financiero.activar?'selected':''}>Sí</option>
-          <option value="false" ${!S.financiero.activar?'selected':''}>No</option>
-        </select></td></tr>
-      <tr><td class="l">Días de inventario</td><td>${inp("financiero.diasInv")}</td></tr>
-      <tr><td class="l">Días de crédito al cliente</td><td>${inp("financiero.diasCliente")}</td></tr>
-      <tr><td class="l">Días de crédito del proveedor</td><td>${inp("financiero.diasProveedor")}</td></tr>
-      <tr><td class="l">Tasa anual de financiamiento</td><td>${inp("financiero.tasaAnual",{pct:true})}<span class="unit">%</span></td></tr>
-      <tr><td class="l">Comisión bancaria (s/venta)</td><td>${inp("financiero.comision",{pct:true})}<span class="unit">%</span></td></tr>
-      <tr><td class="l">Diferencial cambiario</td><td>${inp("financiero.difCambiario",{pct:true})}<span class="unit">%</span></td></tr>
-      <tr><td class="l">Reserva de riesgo cambiario</td><td>${inp("financiero.reservaFX",{pct:true})}<span class="unit">%</span></td></tr>
-    </table></div></div>
-    <div class="card"><h3>Resultado</h3><div class="pad"><table>
-      <tr><td class="l">Días financiados netos</td><td class="mono val-calc">${fN(R.diasNetos,0)}</td></tr>
-      <tr><td class="l">Costo financiero por tiempo</td><td class="mono val-calc">${fPct(R.finTiempo)}</td></tr>
-      <tr class="total"><td class="l">% financiero total (sobre costo)</td><td class="mono">${fPct(R.finTotal)}</td></tr>
-    </table></div></div>
-  </div>`;
-}
 
 function inpPer(id,field,pct){
   const pi=S.perInsert[id]||{}; const v=pi[field];
@@ -1383,18 +1353,13 @@ function secDashboard(R){
   return `
     <div class="exhead">
       <h2>Panel ejecutivo</h2>
-      <div class="exsel"><span>Escenario</span>
-        <div class="seges">
-          ${["Base","Conservador","Estrés"].map(s=>`<button class="${s===scn?'on':''}" data-click="setEscenario('${s}')">${s}</button>`).join("")}
-        </div>
-      </div>
       ${periodoSelector()}
       <span class="hint" style="margin-left:auto">${new Date().toLocaleDateString("es-MX",{day:'2-digit',month:'long',year:'numeric'})}</span>
     </div>
-    <p class="lead">Indicadores para toma de decisiones. Cambia el escenario y todo se recalcula en vivo: úsalo proyectado en la junta para comparar Base, Conservador y Estrés.</p>
+    <p class="lead">Indicadores para toma de decisiones. Todo se recalcula en vivo con los datos capturados en las demás secciones.</p>
 
     <div class="hero">
-      ${hcard("Tipo de cambio "+(S.control.tcFecha?("· "+escapeHtml(String(S.control.tcFecha))):"(MXN/USD)"), "$"+fN(R.tc,4), scn==="Base"?"FIX efectivo":"efectivo en "+scn, "", true)}
+      ${hcard("Tipo de cambio "+(S.control.tcFecha?("· "+escapeHtml(String(S.control.tcFecha))):"(MXN/USD)"), "$"+fN(R.tc,4), "FIX efectivo", "", true)}
       ${hcard("Pool de manufactura", fMXN0(R.pool), "costo mensual a absorber")}
       ${hcard("Tasa de planta", R.tasaPlanta==null?"—":fMXN(R.tasaPlanta), "por hora productiva")}
       ${hcard("Capacidad práctica", fN(R.capPractica,0)+' <small>h/mes</small>', util==null?"utilización sin capturar":("utilización "+fPct(util)), util==null?"g":(util<0.7?"a":"v"))}
@@ -1409,16 +1374,7 @@ function secDashboard(R){
       <div class="card"><h3>Estructura del pool de manufactura</h3><div class="chartbox"><canvas id="ch_pool"></canvas></div></div>
       <div class="card full"><h3>Precio cliente vs. costo por inserto <span class="hint" style="font-weight:400">(MXN/pza)</span></h3><div style="overflow-x:auto"><div class="chartbox tall" style="min-width:${Math.max(560,R.integral.length*46)}px"><canvas id="ch_price"></canvas></div></div></div>
       <div class="card full"><h3>Margen por inserto vs. objetivo</h3><div style="overflow-x:auto"><div class="chartbox tall" style="min-width:${Math.max(560,R.integral.length*46)}px"><canvas id="ch_margin"></canvas></div></div></div>
-      <div class="card">
-        <h3>Sensibilidad por escenario
-          <select class="f" style="margin-left:auto" data-change="setSensMetric(this.value)">
-            <option value="tasa" ${sensMetric==='tasa'?'selected':''}>Tasa de planta $/h</option>
-            <option value="pool" ${sensMetric==='pool'?'selected':''}>Pool $/mes</option>
-            <option value="margen" ${sensMetric==='margen'?'selected':''}>Margen ponderado %</option>
-            <option value="utilidad" ${sensMetric==='utilidad'?'selected':''}>Utilidad mensual $</option>
-          </select>
-        </h3><div class="chartbox"><canvas id="ch_sens"></canvas></div></div>
-      <div class="card"><h3>Decisiones sugeridas</h3><ul class="insights">${insights(R,bajoObj,bajoCosto)}</ul></div>
+      <div class="card full"><h3>Decisiones sugeridas</h3><ul class="insights">${insights(R,bajoObj,bajoCosto)}</ul></div>
     </div>`;
 }
 function hcard(k,v,d,luz="",accent=false){
@@ -1438,14 +1394,6 @@ function insights(R,bajoObj,bajoCosto){
   if(comp.length){ const ms=promedio(comp.map(i=>i.costoIntegral>0?i.materialMXN/i.costoIntegral:0));
     li.push(["info",`El material representa en promedio <b>${fPct(ms)}</b> del costo integral; es la palanca de negociación con proveedor más relevante.`]); }
   if(R.ociosaCosto!=null && R.ociosa>0) li.push(["warn",`La capacidad ociosa cuesta <b>${fMXN0(R.ociosaCosto)}/mes</b> (${fN(R.ociosa,0)} h sin absorber): más volumen o menos costo fijo mejora la tasa.`]);
-  // estrés
-  const base=computeFor("Base"), est=computeFor("Estrés");
-  if(est.tasaPlanta!=null && base.tasaPlanta!=null && Math.abs(est.tasaPlanta-base.tasaPlanta)>0.01){
-    const d=(est.tasaPlanta/base.tasaPlanta-1);
-    li.push(["info",`En escenario <b>Estrés</b> la tasa de planta pasa a <b>${fMXN(est.tasaPlanta)}/h</b> (${d>=0?'+':''}${fPct(d)} vs. Base).`]);
-  } else {
-    li.push(["info","Captura factores de estrés en <b>Control y escenarios</b> para ver el impacto de tipo de cambio, energía y nómina en esta vista."]);
-  }
   if(R.margenPond!=null) li.push([R.margenPond>=objG?"ok":"warn",`Margen ponderado del portafolio: <b>${fPct(R.margenPond)}</b> (objetivo ${fPct(objG)}).`]);
   return li.map(([k,t])=>`<li><span class="ic ${k}">${k==='ok'?'✓':k==='risk'?'!':k==='warn'?'▲':'i'}</span><span>${t}</span></li>`).join("");
 }
@@ -1503,20 +1451,6 @@ function buildDashboardCharts(R){
       plugins:{legend:{position:"bottom",labels:{boxWidth:12,padding:12}},
         tooltip:{callbacks:{label:c=>` ${c.dataset.label}: ${fN(c.parsed.y,1)}%`}}}}});
 
-  // E. Sensibilidad por escenario
-  const scn=["Base","Conservador","Estrés"];
-  const data=scn.map(s=>{const Rs=computeFor(s);
-    if(sensMetric==="tasa")return Rs.tasaPlanta||0;
-    if(sensMetric==="pool")return Rs.pool;
-    if(sensMetric==="margen")return Rs.margenPond!=null?Rs.margenPond*100:0;
-    return Rs.utilMesComp||0;});
-  const fmtSens=v=> sensMetric==="margen"?fN(v,1)+"%":(sensMetric==="tasa"?fMXN(v):fMXN0(v));
-  mk("ch_sens",{type:"bar",
-    data:{labels:scn,datasets:[{data,backgroundColor:[PAL[0],PAL[4],SEM.r],borderRadius:5,
-      barPercentage:.6}]},
-    options:{responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>" "+fmtSens(c.parsed.y)}}},
-      scales:{y:{ticks:{callback:v=>sensMetric==="margen"?v+"%":(v>=1000?"$"+(v/1000).toFixed(0)+"k":"$"+v)}}}}});
 }
 
 /* ===================== PRESUPUESTO Y PUNTO DE EQUILIBRIO ===================== */
@@ -1743,7 +1677,7 @@ function renderSection(id){
   const R=compute();
   const map={dashboard:secDashboard,mes:secMes,presupuesto:secPresupuesto,resumen:secResumen,control:secControl,capacidad:secCapacidad,mano:secMano,
     indirectos:secIndirectos,energia:secEnergia,centros:secCentros,
-    ruta:secRuta,financiero:secFinanciero,integral:secMes,placas:secDiseno,diagrama:secDiagrama,validacion:secValidacion};
+    ruta:secRuta,financiero:secControl,integral:secMes,placas:secDiseno,diagrama:secDiagrama,validacion:secValidacion};
   const cont=document.getElementById("content");
   cont.className="content"+(puedeEditar()?"":" ro");
   cont.innerHTML=(map[id]||secDashboard)(R);
