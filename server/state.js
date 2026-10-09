@@ -14,6 +14,13 @@ const period = z.object({
   items: z.record(id, z.object({ inc: z.boolean().optional(), vol: num.optional() }).strict()),
   estado: z.enum(['cerrado']).nullable().optional(), indirectos: numericRecord.optional(), capacidad: numericRecord.optional(), energia: numericRecord.optional(), mano: numericRecord.optional()
 }).strict();
+const concepto = z.object({ n: text, d: text, q: num, u: num, i: num }).strict();
+const factura = z.object({
+  uuid: z.string().regex(/^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/), fecha: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/),
+  serie: text.optional(), folio: text.optional(), tipo: z.enum(['I','E']), moneda: z.string().regex(/^[A-Z]{3}$/), tc: num.optional(),
+  emisorRfc: text.optional(), receptorRfc: text.optional(), receptor: text.optional(), subtotal: num, total: num,
+  cancelada: z.boolean().optional(), conceptos: z.array(concepto).max(500)
+}).strict();
 const schema = z.object({
   control: z.object({ escenario: z.enum(['Base','Conservador','Estrés']), tcBase: num, margenObj: num, vigenciaMeses: num, tcFecha: text.nullable(), tcAuto: z.boolean(), tcSerie: z.enum(['fix','pagos']) }).strict(),
   escenarios: z.object(Object.fromEntries(Object.keys(defaults.escenarios).map(k => [k, z.object({Base:num, Conservador:num, 'Estrés':num}).strict()]))).strict(),
@@ -28,11 +35,13 @@ const schema = z.object({
   presupuesto:z.object({otrosFijos:num,meta:num,periodo:z.string().regex(/^(catalogo|anio:\d{4}|\d{4}-(0[1-9]|1[0-2]))$/).optional()}).strict(),
   periodos:z.record(z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),period),
   periodoActivo:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).nullable(), periodoVista:z.string().regex(/^(catalogo|anio:\d{4}|\d{4}-(0[1-9]|1[0-2]))$/),
+  facturas:z.array(factura).max(3000).optional(), facturaMap:z.record(key,id).optional(),
   clientes:z.array(text).max(2000), ruta:z.array(z.object({ ins:id, proc:text, ce:text, ...numbers(['op','prep','lote','minMO','minMaq','nop','retrab','merma']) }).strict()).max(10000)
 }).strict();
 export function validateState(value) {
   const state = schema.parse(value);
   if (new Set(state.inserts.map(i=>i.id)).size !== state.inserts.length) { const e=new Error('Hay números de inserto duplicados.');e.status=400;throw e; }
+  if (state.facturas && new Set(state.facturas.map(f=>f.uuid)).size !== state.facturas.length) { const e=new Error('Hay facturas duplicadas (mismo UUID).');e.status=400;throw e; }
   return state;
 }
 export function validateRoleChanges(role, before, after) {
