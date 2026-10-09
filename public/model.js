@@ -38,6 +38,7 @@ function touched(){
 function num(x){const v=parseFloat(x); return isFinite(v)?v:0;}
 let __escOverride=null;
 function esc(){return __escOverride||S.control.escenario;}
+function computeAt(k){ const prev=S.periodoVista; S.periodoVista=k||prev; try{ return compute(); } finally{ S.periodoVista=prev; } }
 function computeFor(scn){const p=__escOverride;__escOverride=scn;const R=compute();__escOverride=p;return R;}
 function f(lever){
   const L=S.escenarios[lever]; if(!L) return lever==="deltaMargen"?0:1;
@@ -114,6 +115,12 @@ function compute(){
   R.capTeorica=num(capv("dias"))*num(capv("turnos"))*num(capv("horas"));
   R.capBase=(num(capv("dias"))-num(capv("festivos"))-num(capv("vacaciones")))*num(capv("turnos"))*(num(capv("horas"))-num(capv("comida")));
   R.capPractica=Math.max(0, R.capBase*(1-num(capv("ausentismo")))-num(capv("mantenimiento"))-num(capv("setups"))-num(capv("paros")));
+  // Horas pagadas productivas para tarifas (A2/A3): sin restar setups (se cobran como preparación en la Ruta)
+  // ni ausentismo general (se aplica una sola vez, por persona). Se expresan por persona = por turno.
+  R.turnos=Math.max(1,num(capv("turnos")));
+  R.horasTarifaPlanta=Math.max(0,R.capBase-num(capv("mantenimiento"))-num(capv("paros")));
+  R.horasPersona=R.horasTarifaPlanta/R.turnos;
+  R.ausentGeneral=num(capv("ausentismo"));
   const hu=capv("horasUsadas");
   R.horasUsadas = (hu==null||hu==="")?null:num(hu)*f("utilizacion");
   R.ociosa = R.horasUsadas==null?null:(R.capPractica-R.horasUsadas);
@@ -127,7 +134,8 @@ function compute(){
     const sv=valPeriodo("mano","e"+ei+".sueldo",e.sueldo), nv=valPeriodo("mano","e"+ei+".n",e.n);
     const bruto=(e.period==="Semanal"?num(sv)*num(p.semanas):num(sv))*num(nv);
     const costo=(bruto*R.factorEmpresa+num(e.uniformes)+num(e.capacitacion))*R.factorNomina;
-    const horas=R.capPractica*(1-num(e.ausent))*num(nv);
+    const aus=(e.ausent!=null&&e.ausent!==""&&num(e.ausent)>0)?num(e.ausent):R.ausentGeneral;
+    const horas=R.horasPersona*(1-aus)*num(nv);
     return {...e,bruto,costo,horas,tarifa:horas>0?costo/horas:null};
   });
   R.moDirecta=R.emp.filter(e=>e.tipo==="Directa").reduce((a,e)=>a+e.costo,0);
@@ -161,7 +169,10 @@ function compute(){
   R.tasaPlanta=R.capPractica>0?R.pool/R.capPractica:null;
   R.ociosaCosto=(R.ociosa!=null&&R.tasaPlanta!=null)?R.ociosa*R.tasaPlanta:null;
   // Centros de costo
-  R.indRate=R.capPractica>0?(R.energiaSubtotal+R.indFabril)/R.capPractica:0;
+  // A1: los minutos de la Ruta se cobran por persona (min × operadores), así que la base es la hora-persona directa disponible
+  R.horasDirectas=R.emp.filter(e=>e.tipo==="Directa").reduce((a,e)=>a+e.horas,0);
+  R.baseIndHoras=R.horasDirectas>0?R.horasDirectas:R.capPractica;
+  R.indRate=R.baseIndHoras>0?(R.energiaSubtotal+R.indFabril)/R.baseIndHoras:0;
   R.centros=CENTROS.map(c=>{
     const dirEmp=R.emp.filter(e=>e.centro===c&&e.tipo==="Directa");
     const moCost=dirEmp.reduce((a,e)=>a+e.costo,0), moHrs=dirEmp.reduce((a,e)=>a+e.horas,0);
@@ -569,6 +580,8 @@ function secCapacidad(R){
       <tr><td class="l">Capacidad teórica</td><td class="mono val-calc">${fN(R.capTeorica,0)}<span class="unit">h/mes</span></td></tr>
       <tr><td class="l">Horas productivas base</td><td class="mono val-calc">${fN(R.capBase,0)}<span class="unit">h/mes</span></td></tr>
       <tr class="total"><td class="l">Capacidad práctica</td><td class="mono">${fN(R.capPractica,0)}<span class="unit">h/mes</span></td></tr>
+      <tr><td class="l">Horas por persona para tarifas <span class="hint">(sin setups ni ausentismo; por turno)</span></td><td class="mono val-calc">${fN(R.horasPersona,1)}<span class="unit">h/mes</span></td></tr>
+      <tr><td class="l">Horas-persona directas disponibles</td><td class="mono val-calc">${fN(R.horasDirectas,0)}<span class="unit">h/mes</span></td></tr>
       <tr><td class="l">Horas utilizadas <span class="hint">(captura)</span></td><td>${perInput("capacidad","horasUsadas","capacidad.horasUsadas",{ph:"PENDIENTE"})}</td></tr>
       <tr><td class="l">Capacidad ociosa</td><td class="mono val-calc">${R.ociosa==null?'<span class="val-pend">PENDIENTE</span>':fN(R.ociosa,0)+' h'}</td></tr>
       <tr><td class="l">% de utilización</td><td class="mono val-calc">${R.utilPct==null?'<span class="val-pend">PENDIENTE</span>':fPct(R.utilPct)}</td></tr>
@@ -712,7 +725,7 @@ function secCentros(R){
     <td class="mono val-calc">${fMXN(c.indRate)}</td>
     <td class="mono" style="font-weight:700">${fMXN(c.total)}<span class="unit">/h</span></td></tr>`).join("");
   return head("Centros de costo","CENTROS_COSTO",
-    "Cada centro tiene su propia tarifa de mano de obra (derivada de la nómina de sus operadores directos) y una tarifa de indirectos de planta. Tarifa total = mano de obra + indirectos. Los tiempos de la ruta consumen estas tarifas.")
+    "Cada centro tiene su propia tarifa de mano de obra (costo de sus operadores directos ÷ sus horas pagadas productivas) y una tarifa de indirectos de planta (energía + indirectos fabriles ÷ horas-persona directas disponibles, porque la Ruta cobra minutos × número de operadores). Tarifa total = mano de obra + indirectos. Los setups se cobran como minutos de preparación en la Ruta, por eso no se restan de las horas de tarifa.")
   +`<div class="scroll"><table><thead><tr><th class="l">Centro de costo</th><th>Tarifa MO $/h</th><th>Tarifa indirectos $/h</th><th>Tarifa TOTAL $/h</th></tr></thead>
     <tbody>${rows}</tbody></table></div>`;
 }
@@ -1890,7 +1903,8 @@ function buildPresupuestoCharts(R){
 /* ===================== RENDER ===================== */
 function renderSection(id){
   destroyCharts();
-  const R=compute();
+  // A4: Costeo mensual y Facturas siempre se calculan con las tarifas del mes que muestran
+  const R=(id==="mes"||id==="facturas"||id==="integral")?computeAt(periodoKey()):compute();
   const map={dashboard:secDashboard,mes:secMes,presupuesto:secPresupuesto,resumen:secResumen,control:secControl,capacidad:secCapacidad,mano:secMano,
     indirectos:secIndirectos,energia:secEnergia,centros:secCentros,
     ruta:secRuta,financiero:secControl,facturas:secFacturas,integral:secMes,placas:secDiseno,diagrama:secDiagrama,validacion:secValidacion};
@@ -2006,7 +2020,7 @@ function buildWorkbook(){
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(pre), "Presupuesto");
 
-  const kk=periodoKey(); const M=computeMes(R,kk);
+  const kk=periodoKey(); const M=computeMes(computeAt(kk),kk);
   if(M.act.length){
     const mesRows=[["COSTEO MENSUAL — "+nombreMes(kk)],[],
       ["Inserto","Cliente","Volumen","Costo integral u.","Precio cliente u.","Ventas del mes","Costo del mes","Utilidad del mes","Margen %","Estado"]];
@@ -2184,9 +2198,9 @@ const app={
   setCliVista(v){ cliVista=v; renderSection(current); },
   setCliDiagrama(v){ cliVista=v; const l=S.inserts.filter(pasaCliente); if(l.length&&!l.some(x=>String(x.id)===String(disenoSel))) disenoSel=String(l[0].id); renderSection("diagrama"); },
   abrirAcceso(){ NF.openAccount(); },
-  setPeriodoVista(v){ S.periodoVista=v||"catalogo"; save(); renderKPIs(); renderChain(); renderSection(current); toast("Consultando "+etiquetaPeriodo(S.periodoVista)); },
-  setPresuPeriodo(v){ S.periodoVista=v||"catalogo"; save(); renderKPIs(); renderChain(); renderSection("presupuesto"); },
-  setPeriodo(v){ if(!v) return; S.periodoActivo=v; ensurePeriodo(v); save(); renderSection(current==="facturas"?"facturas":"mes"); },
+  setPeriodoVista(v){ S.periodoVista=v||"catalogo"; if(/^\d{4}-\d{2}$/.test(S.periodoVista)) S.periodoActivo=S.periodoVista; save(); renderKPIs(); renderChain(); renderSection(current); toast("Consultando "+etiquetaPeriodo(S.periodoVista)); },
+  setPresuPeriodo(v){ S.periodoVista=v||"catalogo"; if(/^\d{4}-\d{2}$/.test(S.periodoVista)) S.periodoActivo=S.periodoVista; save(); renderKPIs(); renderChain(); renderSection("presupuesto"); },
+  setPeriodo(v){ if(!v) return; S.periodoActivo=v; S.periodoVista=v; ensurePeriodo(v); save(); renderKPIs(); renderChain(); renderSection(current==="facturas"?"facturas":"mes"); },
   async subirFacturas(ev){
     const input=ev&&ev.target; const files=input&&input.files?[...input.files]:[]; if(!files.length) return;
     ensureFacturas(); const ya=new Set(S.facturas.map(f=>f.uuid)); let ok=0,dup=0; const errs=[]; const meses={};
@@ -2363,7 +2377,7 @@ const app={
       ],{cols:{0:{halign:"left",fontStyle:"bold"}}});
 
       // Costeo mensual del periodo activo
-      const kk=periodoKey(); const M=computeMes(R,kk);
+      const kk=periodoKey(); const M=computeMes(computeAt(kk),kk);
       if(M.act.length){
         tabla("Costeo mensual — "+nombreMes(kk),
           ["Inserto","Cliente","Volumen","Costo integral u.","Precio cliente u.","Ventas del mes","Costo del mes","Utilidad del mes","Margen"],
