@@ -115,3 +115,9 @@ El servidor limita cada solicitud a 2 MB y aplica límites a las listas. La capa
 - `tests/`: verificaciones aisladas.
 
 La versión original permanece en la historia de Git. No publicar `.env`, `.local`, pruebas exportadas o credenciales.
+
+## Secciones de datos reales
+
+- **Facturas de venta**: carga de XML CFDI y comparativo proyectado vs. facturado.
+- **Producción y carga**: bitácora diaria de piezas, minutos y personas; compara tiempos reales contra la Ruta y calcula la carga de planta.
+- **Cierre de mes**: al cerrar un periodo se congelan sus costos, precios, tipo de cambio y gastos fijos.
