@@ -42,7 +42,7 @@ const schema = z.object({
   empleados: z.array(z.object({ puesto:text, tipo:text, centro:text, period:text, ...numbers(['sueldo','n','uniformes','capacitacion','ausent']) }).strict()).max(2000),
   maquinaria: z.array(z.object({nombre:text.optional(),centro:text.optional(), ...numbers(['vida','adquisicion','residual','mantenimiento','refacciones','seguro'])}).strict()).max(2000),
   indirectos: z.array(z.object({ c:text, cl:text, ce:text, m:num }).strict()).max(2000),
-  energia: z.object({ ...numbers(['precio','cargoFijo','demandaKW','cargoDemanda','reciboReal']), cargas:z.array(z.object({n:text,kw:num,h:num}).strict()).max(2000) }).strict(),
+  energia: z.object({ ...numbers(['precio','cargoFijo','demandaKW','cargoDemanda','reciboReal']), cargas:z.array(z.object({n:text,kw:num,h:num,v:z.boolean().optional()}).strict()).max(2000) }).strict(),
   financiero: z.object({ activar:z.boolean(), ...numbers(Object.keys(defaults.financiero).filter(k=>k!=='activar')) }).strict(),
   inserts:z.array(z.object({id,cliente:text.nullable().optional(),q25:num.optional(),q26:num.optional(),diseno:z.object({materiales:z.array(material).max(3),piezas:z.array(pieza).max(2000),qDeseada:num.optional()}).strict().optional()}).strict()).max(2000),
   catalogo:z.array(material).max(2000), perInsert:z.record(id,z.object({ ...numbers(['mermaMat','margenObj','garantia','volumen','flete','precioCliente','rechazo','consumibles','mantenimiento','empaque','garantias']), cliente:text.nullable().optional() }).strict()),
