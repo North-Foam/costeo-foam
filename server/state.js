@@ -50,7 +50,8 @@ const schema = z.object({
   periodos:z.record(z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),period),
   periodoActivo:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).nullable(), periodoVista:z.string().regex(/^(catalogo|anio:\d{4}|\d{4}-(0[1-9]|1[0-2]))$/),
   facturas:z.array(factura).max(3000).optional(), compras:z.array(compra).max(4000).optional(), pagos:z.array(pago).max(3000).optional(),
-  compraMap:z.record(key, z.object({ t: z.enum(['mat','gasto','energia','nomina','ign']), v: text.optional() }).strict()).optional(), produccion:z.array(registro).max(10000).optional(), facturaMap:z.record(key,id).optional(),
+  compraMap:z.record(key, z.object({ t: z.enum(['mat','gasto','energia','nomina','ign']), v: text.optional() }).strict()).optional(),
+  seguridad:z.object({ pinSalt: z.string().regex(/^[0-9a-f]{32}$/), pinHash: z.string().regex(/^[0-9a-f]{64}$/) }).strict().optional(), produccion:z.array(registro).max(10000).optional(), facturaMap:z.record(key,id).optional(),
   clientes:z.array(text).max(2000), ruta:z.array(z.object({ ins:id, proc:text, ce:text, ...numbers(['op','prep','lote','minMO','minMaq','nop','retrab','merma']) }).strict()).max(10000)
 }).strict();
 export function validateState(value) {
@@ -61,6 +62,9 @@ export function validateState(value) {
 }
 export function validateRoleChanges(role, before, after) {
   if (role === 'admin') return;
+  if (!isDeepStrictEqual(before.seguridad ?? null, after.seguridad ?? null)) {
+    const e = new Error('Solo el administrador puede crear o cambiar el PIN.'); e.status=403; throw e;
+  }
   for (const [month, old] of Object.entries(before.periodos)) {
     const current = after.periodos[month];
     if (!current || (old.estado ?? null) !== (current.estado ?? null) || (old.estado === 'cerrado' && !isDeepStrictEqual(old,current))) {
