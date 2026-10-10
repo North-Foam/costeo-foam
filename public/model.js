@@ -1269,8 +1269,7 @@ function secMes(R){
   return head("Costeo mensual — insertos trabajados en el mes","REPORTE POR PERIODO",
     "Selecciona el mes y marca qué insertos se trabajan, con su volumen del periodo. Aquí ves el costo integral completo de cada inserto (material, conversión de la <b>Ruta de proceso</b> y gastos de operación), su precio sugerido y su margen. Cada periodo se guarda por separado para consultarlo después.")
   +`<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
-      <div class="exsel" style="display:inline-flex"><span>Periodo</span>
-        <input type="month" class="f" style="width:140px" value="${escapeHtml(k)}" data-change="setPeriodo(this.value)"></div>
+      ${mesTrabajoChip(k)}
       <div class="exsel" style="display:inline-flex"><span>Cliente</span>
         <select data-change="setCliFiltro(this.value)">${cliLista.map(c=>`<option ${c===cliFiltro?'selected':''}>${escapeHtml(c)}</option>`).join("")}</select></div>
       ${badgePeriodo(k)}<span class="hint">${nombreMes(k)} · ${M.act.length} insertos · ${fN(M.piezas,0)} pzas${hist.length>1?(' · '+hist.length+' periodos guardados'):''}</span>
@@ -1280,7 +1279,6 @@ function secMes(R){
         <button class="rowbtn" style="margin:0" data-click="mesCopiarVol()">Traer volúmenes del catálogo</button>
         <button class="rowbtn" style="margin:0" data-click="mesAplicarPanel()">Aplicar al panel</button>
         <button class="rowbtn" style="margin:0" data-click="mesCerrar()">${((S.periodos[k]||{}).estado==="cerrado")?"Reabrir mes":"Cerrar mes"}</button>
-        ${esAdmin()?`<button class="rowbtn" style="margin:0;border-color:var(--red);color:var(--red)" data-click="mesBorrar()">Borrar mes</button>`:""}
       </div>
     </div>
 
@@ -1450,8 +1448,7 @@ function secPrecios(R){
   const cotIt=R.integral.find(i=>String(i.ins.id)===String(COT.id));
   return head("Precio mínimo y contribución","COSTO VARIABLE · PRECIO PISO · EQUILIBRIO",
     "Para negociar: el <b>precio piso</b> sólo cubre el costo variable de la pieza (material con merma, energía de proceso, consumibles, financiamiento, garantías y comisión). Arriba del piso cada pieza aporta para pagar los gastos fijos. El <b>precio de equilibrio</b> cubre el costo integral completo (utilidad cero) y el <b>precio objetivo</b> agrega tu margen. La <b>contribución por hora</b> dice qué insertos aprovechan mejor las horas de la planta.")
-  +`<div class="filterbar">${clienteSelector("setCliVista")}<div class="exsel" style="display:inline-flex"><span>Periodo</span>
-        <input type="month" class="f" style="width:140px" value="${escapeHtml(k)}" data-change="setPeriodo(this.value)"></div>
+  +`<div class="filterbar">${clienteSelector("setCliVista")}${mesTrabajoChip(k)}
       <span class="hint">Tarifas de ${nombreMes(k)} · TC ${fN(R.tc,4)}</span></div>
     <div class="hero">
       ${hcard("Contribución promedio",ratio==null?"—":fPct(ratio),ven>0?"ponderada con el plan de "+nombreMes(k):"promedio simple (sin volumen)","",true)}
@@ -1548,8 +1545,7 @@ function computeVariaciones(k){
 }
 function secVariaciones(R){
   const k=periodoKey(); const V=computeVariaciones(k);
-  const sel=`<div class="filterbar"><div class="exsel" style="display:inline-flex"><span>Periodo</span>
-        <input type="month" class="f" style="width:140px" value="${escapeHtml(k)}" data-change="setPeriodo(this.value)"></div>${badgePeriodo(k)}
+  const sel=`<div class="filterbar">${mesTrabajoChip(k)}${badgePeriodo(k)}
       <span class="hint">${nombreMes(k)}</span></div>`;
   const lead="Explica por qué la utilidad real del mes fue distinta a la planeada. El <b>plan</b> son los volúmenes de Costeo mensual con los costos estándar del mes (captura manual o catálogo). Lo <b>real</b> sale de las facturas de venta, las compras de foam y gastos en XML y el registro de producción. Verde = a favor de la utilidad; rojo = en contra.";
   if(!V.ok) return head("Variaciones del mes","PLAN VS. REAL",lead)+sel+`<div class="note">Aún no hay facturas de venta de ${nombreMes(k)}. Súbelas en <b>Facturas de venta</b> (y, si los tienes, los XML de compras y el registro de producción) para ver las variaciones.</div>`;
@@ -1668,8 +1664,7 @@ function secProduccion(R){
   return head("Producción real y carga de planta","BITÁCORA · CARGA",
     "Registra cada día qué inserto se trabajó, cuántas piezas, cuánto tiempo y cuántas personas. La app compara los minutos reales contra la <b>Ruta de proceso</b> y calcula la carga de planta: horas-persona que pide el plan del mes contra las disponibles.")
   +`<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
-      <div class="exsel" style="display:inline-flex"><span>Periodo</span>
-        <input type="month" class="f" style="width:140px" value="${escapeHtml(k)}" data-change="setPeriodo(this.value)"></div>
+      ${mesTrabajoChip(k)}
       <button class="btn primary" data-click="addRegistro()">+ Registrar producción</button>
       <span class="hint">${nombreMes(k)} · ${X.regs.length} registro(s) · ${fN(X.piezas,0)} piezas · ${fN(X.hReal,1)} h-persona</span>
     </div>
@@ -1858,8 +1853,7 @@ function secCompras(R){
   return head("Compras, gastos y nómina","CFDI RECIBIDOS · DATOS REALES",
     "Sube los XML de tus <b>facturas de proveedores</b> (foam, renta, CFE, consumibles, servicios…) y los <b>recibos de nómina</b>. Clasifica cada concepto una sola vez y la app lo recordará. Lo clasificado sustituye automáticamente la captura del mes: gastos en <b>Indirectos</b>, recibo en <b>Energía</b> y sueldos en <b>Mano de obra</b> (verás la etiqueta XML). El foam comprado se compara contra el precio del catálogo y contra el requerimiento del plan.")
   +`<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
-      <div class="exsel" style="display:inline-flex"><span>Periodo</span>
-        <input type="month" class="f" style="width:140px" value="${escapeHtml(k)}" data-change="setPeriodo(this.value)"></div>
+      ${mesTrabajoChip(k)}
       <label class="btn primary" style="cursor:pointer">Subir XML recibidos
         <input type="file" accept=".xml,text/xml,application/xml" multiple style="display:none" data-change="subirCompras(event)"></label>
       <span class="hint">${nombreMes(k)} · ${V.docs} XML vigente(s) · ${S.compras.length} en total</span>
@@ -2029,8 +2023,7 @@ function secFacturas(R){
   return head("Facturas de venta","CFDI · VENTAS REALES",
     "Sube los XML de tus facturas de venta (CFDI). Cada concepto se asigna al inserto cuyo número viene en <b>No. de identificación</b>. Lo facturado se compara contra el volumen proyectado del mes y se muestra como <b>real</b> en Costeo mensual, Presupuesto y equilibrio y el Panel ejecutivo, sin modificar lo proyectado.")
   +`<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
-      <div class="exsel" style="display:inline-flex"><span>Periodo</span>
-        <input type="month" class="f" style="width:140px" value="${escapeHtml(k)}" data-change="setPeriodo(this.value)"></div>
+      ${mesTrabajoChip(k)}
       <label class="btn primary" style="cursor:pointer">Subir XML de facturas
         <input type="file" accept=".xml,text/xml,application/xml" multiple style="display:none" data-change="subirFacturas(event)"></label>
       <span class="hint">${nombreMes(k)} · ${F.n} factura(s) vigente(s)${F.canceladas?(' · '+F.canceladas+' cancelada(s)'):''} · ${S.facturas.length} en total</span>
@@ -2149,10 +2142,14 @@ function secDashboard(R){
   return `
     <div class="exhead">
       <h2>Panel ejecutivo</h2>
-      ${periodoSelector()}
+      <div class="exsel" style="display:inline-flex;border-color:var(--accent)"><span>Mes de trabajo</span>
+        <input type="month" class="f" style="width:150px" value="${escapeHtml(periodoKey())}" data-change="setPeriodo(this.value)"></div>
+      ${badgePeriodo(periodoKey())}
+      ${esAdmin()?`<button class="rowbtn" style="margin:0;border-color:var(--red);color:var(--red)" data-click="mesBorrar()">Borrar ${escapeHtml(nombreMes(periodoKey()))}</button>
+      <button class="rowbtn" style="margin:0" data-click="cambiarPin()">${(S.seguridad&&S.seguridad.pinHash)?"Cambiar PIN":"Crear PIN"}</button>`:""}
       <span class="hint" style="margin-left:auto">${new Date().toLocaleDateString("es-MX",{day:'2-digit',month:'long',year:'numeric'})}</span>
     </div>
-    <p class="lead">Indicadores para toma de decisiones. Todo se recalcula en vivo con los datos capturados en las demás secciones.</p>
+    <p class="lead">Indicadores para toma de decisiones del <b>mes de trabajo</b> (${escapeHtml(nombreMes(periodoKey()))}). Aquí se elige el mes con el que trabajan todas las secciones (Costeo mensual, Facturas, Compras, Producción, Precio mínimo y Variaciones).</p>
 
     <div class="hero">
       ${hcard("Tipo de cambio "+(S.control.tcFecha?("· "+escapeHtml(String(S.control.tcFecha))):"(MXN/USD)"), "$"+fN(R.tc,4), "FIX efectivo", "", true)}
@@ -2330,7 +2327,50 @@ let ROL="consulta";
 function setRol(r){ ROL=r; }
 function esAdmin(){ return ROL==="admin"; }
 function puedeEditar(){ return ROL==="admin"||ROL==="captura"; }
-function pedirPin(msg,onOk){ if(esAdmin()) onOk(); }
+/* ---------- PIN de seguridad (operaciones irreversibles) ---------- */
+var PIN_FALLOS=0, PIN_BLOQUEO=0;
+const hexDe=buf=>[...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,"0")).join("");
+async function hashPin(pin,salt){
+  const key=await crypto.subtle.importKey("raw",new TextEncoder().encode(String(pin)),"PBKDF2",false,["deriveBits"]);
+  const bytes=new Uint8Array(salt.match(/../g).map(h=>parseInt(h,16)));
+  return hexDe(await crypto.subtle.deriveBits({name:"PBKDF2",salt:bytes,iterations:200000,hash:"SHA-256"},key,256));
+}
+function pinModal(titulo,msg,campos,okLabel,onSubmit){
+  const ov=document.createElement("div"); ov.className="modal-ov";
+  const m=document.createElement("div"); m.className="modal";
+  m.innerHTML=`<div class="modal-msg"><b>${titulo}</b><br>${msg}</div>
+    ${campos.map((c,i)=>`<label style="display:block;font-size:13px;color:var(--muted);margin:0 0 4px">${c}</label>
+      <input type="password" inputmode="numeric" autocomplete="off" maxlength="8" class="f" data-pin="${i}" style="width:100%;font-size:18px;letter-spacing:6px;margin-bottom:12px;text-align:center">`).join("")}
+    <div class="hint" data-err style="color:var(--red);min-height:18px;margin-bottom:8px"></div>
+    <div class="modal-actions"><button class="btn" type="button" data-no>Cancelar</button>
+    <button class="btn danger" type="button" data-yes>${okLabel}</button></div>`;
+  ov.appendChild(m); document.body.appendChild(ov);
+  const close=()=>{ if(ov.parentNode) ov.parentNode.removeChild(ov); document.removeEventListener("keydown",onKey); };
+  const err=t=>{ m.querySelector("[data-err]").textContent=t; };
+  const enviar=async()=>{ const vals=[...m.querySelectorAll("[data-pin]")].map(x=>x.value.trim()); const btn=m.querySelector("[data-yes]"); btn.disabled=true;
+    try{ if(!(window.crypto&&crypto.subtle)){ err("Este navegador no permite validar el PIN (se requiere conexión segura https)."); return; }
+      const r=await onSubmit(vals,err); if(r) close(); } catch(e){ err("No se pudo validar el PIN: "+(e.message||e)); } finally{ btn.disabled=false; } };
+  const onKey=ev=>{ if(ev.key==="Escape") close(); if(ev.key==="Enter") enviar(); };
+  m.querySelector("[data-no]").onclick=close; m.querySelector("[data-yes]").onclick=enviar;
+  document.addEventListener("keydown",onKey); const f=m.querySelector("[data-pin]"); if(f) f.focus();
+}
+function crearPin(titulo,onOk){
+  pinModal(titulo,"Define un PIN de 4 a 8 dígitos. Se pedirá para borrar meses. Sólo el Administrador puede crearlo o cambiarlo.",["PIN nuevo","Repite el PIN"],"Guardar PIN",async([a,b],err)=>{
+    if(!/^\d{4,8}$/.test(a)){ err("El PIN debe tener de 4 a 8 dígitos."); return false; }
+    if(a!==b){ err("Los PIN no coinciden."); return false; }
+    const salt=hexDe(crypto.getRandomValues(new Uint8Array(16)));
+    S.seguridad={pinSalt:salt,pinHash:await hashPin(a,salt)}; save(); renderSection(current); toast("PIN guardado");
+    if(onOk) onOk(); return true; });
+}
+function pedirPin(msg,onOk){
+  if(!esAdmin()){ toast("Solo el Administrador puede hacer esto"); return; }
+  const sg=S.seguridad;
+  if(!sg||!sg.pinHash){ crearPin("Primero crea el PIN de seguridad",onOk); return; }
+  pinModal("PIN de seguridad",msg,["PIN"],"Confirmar",async([a],err)=>{
+    if(Date.now()<PIN_BLOQUEO){ err("Demasiados intentos. Espera unos minutos."); return false; }
+    if(await hashPin(a,sg.pinSalt)!==sg.pinHash){ PIN_FALLOS++; if(PIN_FALLOS>=5){ PIN_BLOQUEO=Date.now()+5*60000; PIN_FALLOS=0; } err("PIN incorrecto."); return false; }
+    PIN_FALLOS=0; setTimeout(onOk,0); return true; });
+}
 function clienteSelector(fn){
   const cur=cliVista||"(todos)";
   const lista=["(todos)"].concat([...new Set(S.inserts.map(i=>clienteLabel(i)))].sort());
@@ -2342,6 +2382,7 @@ function clienteSelector(fn){
 }
 function pasaCliente(ins){ return cliVista==="(todos)"||clienteLabel(ins)===cliVista; }
 function periodoSelector(){
+  if(/^\d{4}-\d{2}$/.test(String(S.periodoVista||""))&&S.periodoVista!==periodoKey()) S.periodoVista=periodoKey();
   const cur=S.periodoVista||"catalogo";
   return `<div class="exsel" style="display:inline-flex"><span>Periodo</span>
     <select data-change="setPeriodoVista(this.value)">
@@ -2351,9 +2392,14 @@ function periodoSelector(){
 function listaPeriodos(){
   const ks=Object.keys(S.periodos||{}).filter(k=>/^\d{4}-\d{2}$/.test(k)).sort().reverse();
   const anios=[...new Set(ks.map(k=>k.slice(0,4)))].sort().reverse();
+  const mk=periodoKey();
   return [{v:"catalogo",t:"Catálogo (volúmenes generales)"}]
-    .concat(anios.map(y=>({v:"anio:"+y,t:"Año "+y})))
-    .concat(ks.map(k=>({v:k,t:nombreMes(k)})));
+    .concat([{v:mk,t:"Mes de trabajo · "+nombreMes(mk)}])
+    .concat(anios.map(y=>({v:"anio:"+y,t:"Año "+y})));
+}
+function mesTrabajoChip(k){
+  return `<div class="exsel" style="display:inline-flex" title="El mes de trabajo se elige en el Panel ejecutivo"><span>Mes de trabajo</span><b style="color:var(--accent2)">${escapeHtml(nombreMes(k))}</b></div>
+    <button class="rowbtn" style="margin:0" data-click="go('dashboard')">Cambiar en Panel ejecutivo</button>`;
 }
 function avgContribRatio(R){
   const arr=R.integral.filter(i=>i.precioClMXN>0).map(i=>i.contribUnit/i.precioClMXN);
@@ -2490,7 +2536,7 @@ function buildPresupuestoCharts(R){
 function renderSection(id){
   destroyCharts();
   // A4: Costeo mensual y Facturas siempre se calculan con las tarifas del mes que muestran
-  const R=(id==="mes"||id==="facturas"||id==="integral"||id==="produccion"||id==="compras"||id==="precios"||id==="variaciones")?computeAt(periodoKey()):compute();
+  const R=(id==="mes"||id==="facturas"||id==="integral"||id==="produccion"||id==="compras"||id==="precios"||id==="variaciones"||id==="dashboard")?computeAt(periodoKey()):compute();
   const map={dashboard:secDashboard,mes:secMes,presupuesto:secPresupuesto,resumen:secResumen,control:secControl,capacidad:secCapacidad,mano:secMano,
     indirectos:secIndirectos,energia:secEnergia,centros:secCentros,
     ruta:secRuta,financiero:secControl,facturas:secFacturas,compras:secCompras,precios:secPrecios,variaciones:secVariaciones,produccion:secProduccion,integral:secMes,placas:secDiseno,diagrama:secDiagrama,validacion:secValidacion};
@@ -2802,20 +2848,39 @@ const app={
     toast(P.estado==="cerrado"?(nombreMes(k)+" cerrado"):(nombreMes(k)+" reabierto")); },
   mesBorrar(){ const k=periodoKey();
     if(!esAdmin()){ toast("Solo el Administrador puede borrar un periodo"); return; }
-    askConfirm("¿Borrar TODOS los datos capturados de <b>"+nombreMes(k)+"</b>?<br><br>Se eliminan volúmenes, clientes del mes y los montos de indirectos, capacidad, energía y nómina de ese periodo. El catálogo de insertos no se toca.",()=>{
-      pedirPin("Confirma con la contraseña para borrar <b>"+nombreMes(k)+"</b>.",()=>{
+    ensureFacturas(); ensureCompras(); ensureProduccion();
+    const P=(S.periodos||{})[k]||{}; const enMes=f=>String(f||"").slice(0,7)===k;
+    const nIns=Object.values(P.items||{}).filter(c=>c&&(c.inc||num(c.vol)>0)).length;
+    const nCap=["indirectos","capacidad","energia","mano"].reduce((a,g)=>a+Object.keys(P[g]||{}).length,0);
+    const nFac=S.facturas.filter(fa=>enMes(fa.fecha)).length, nPag=S.pagos.filter(p=>enMes(p.fecha)).length;
+    const nCom=S.compras.filter(fa=>mesCompra(fa)===k).length, nPro=S.produccion.filter(r=>enMes(r.fecha)).length;
+    const li=(n,t)=>`<li>${n} ${t}</li>`;
+    askConfirm(`<b style="color:var(--red)">⚠ Alerta: borrado completo de ${escapeHtml(nombreMes(k))}</b><br><br>Se eliminarán de forma permanente:<ul style="margin:8px 0 8px 18px;padding:0">
+      ${li(nIns,"inserto(s) con volumen del mes")}${li(nCap,"monto(s) capturados del mes (indirectos, capacidad, energía, nómina)")}
+      ${li(nFac,"factura(s) de venta")}${li(nPag,"complemento(s) de pago")}${li(nCom,"XML de compras, gastos y nómina")}${li(nPro,"registro(s) de producción")}</ul>
+      ${P.estado==="cerrado"?"<b>El mes está cerrado</b>: también se borra su cierre.<br>":""}
+      <b>No se toca el catálogo</b>: insertos, costeo de placas, ruta, materiales, sueldos, gastos base y clasificaciones de XML se conservan.<br><br>Esta acción no se puede deshacer. Si quieres conservar una copia, primero usa <b>Respaldar datos</b>.`,()=>{
+      pedirPin("Escribe el PIN para borrar <b>"+escapeHtml(nombreMes(k))+"</b> por completo.",()=>{
         delete S.periodos[k];
-        if(S.periodoVista===k) S.periodoVista="catalogo";
-        save(); renderKPIs(); renderChain(); renderSection("mes"); toast(nombreMes(k)+" borrado");
+        S.facturas=S.facturas.filter(fa=>!enMes(fa.fecha));
+        S.pagos=S.pagos.filter(p=>!enMes(p.fecha));
+        S.compras=S.compras.filter(fa=>mesCompra(fa)!==k);
+        S.produccion=S.produccion.filter(r=>!enMes(r.fecha));
+        if(typeof REAL_VER!=="undefined") REAL_VER++;
+        if(S.periodoVista===k) S.periodoVista=k;
+        save(); renderKPIs(); renderChain(); renderSection(current); toast(nombreMes(k)+" borrado por completo");
       });
-    },"Borrar mes"); },
+    },"Continuar"); },
+  cambiarPin(){ if(!esAdmin()) return;
+    if(!(S.seguridad&&S.seguridad.pinHash)){ crearPin("Crear PIN de seguridad"); return; }
+    pedirPin("Escribe el PIN actual para cambiarlo.",()=>crearPin("Nuevo PIN de seguridad")); },
   setCliRuta(v){ cliVista=v; rutaFilter="(todos)"; renderSection("ruta"); },
   setCliVista(v){ cliVista=v; renderSection(current); },
   setCliDiagrama(v){ cliVista=v; const l=S.inserts.filter(pasaCliente); if(l.length&&!l.some(x=>String(x.id)===String(disenoSel))) disenoSel=String(l[0].id); renderSection("diagrama"); },
   abrirAcceso(){ NF.openAccount(); },
-  setPeriodoVista(v){ S.periodoVista=v||"catalogo"; if(/^\d{4}-\d{2}$/.test(S.periodoVista)) S.periodoActivo=S.periodoVista; save(); renderKPIs(); renderChain(); renderSection(current); toast("Consultando "+etiquetaPeriodo(S.periodoVista)); },
-  setPresuPeriodo(v){ S.periodoVista=v||"catalogo"; if(/^\d{4}-\d{2}$/.test(S.periodoVista)) S.periodoActivo=S.periodoVista; save(); renderKPIs(); renderChain(); renderSection("presupuesto"); },
-  setPeriodo(v){ if(!v) return; S.periodoActivo=v; S.periodoVista=v; ensurePeriodo(v); save(); renderKPIs(); renderChain(); renderSection((current==="facturas"||current==="produccion"||current==="compras"||current==="precios"||current==="variaciones")?current:"mes"); },
+  setPeriodoVista(v){ S.periodoVista=v||"catalogo"; save(); renderKPIs(); renderChain(); renderSection(current); toast("Consultando "+etiquetaPeriodo(S.periodoVista)); },
+  setPresuPeriodo(v){ S.periodoVista=v||"catalogo"; save(); renderKPIs(); renderChain(); renderSection("presupuesto"); },
+  setPeriodo(v){ if(!v) return; S.periodoActivo=v; S.periodoVista=v; ensurePeriodo(v); save(); renderKPIs(); renderChain(); renderSection(current); toast("Mes de trabajo: "+nombreMes(v)); },
   async subirFacturas(ev){
     const input=ev&&ev.target; const files=input&&input.files?[...input.files]:[]; if(!files.length) return;
     ensureFacturas(); const ya=new Set(S.facturas.map(f=>f.uuid)); let ok=0,okP=0,dup=0; const errs=[]; const meses={};
