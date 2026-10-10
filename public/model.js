@@ -453,6 +453,7 @@ document.addEventListener("input",e=>{ if(e.target.dataset&&e.target.dataset.pat
 
 /* ===================== SECCIONES ===================== */
 const SECTIONS=[
+  {id:"guia",ix:"00",name:"Guía del mes"},
   {id:"dashboard",ix:"01",name:"Panel ejecutivo"},
   {id:"presupuesto",ix:"02",name:"Presupuesto y equilibrio"},
   {id:"resumen",ix:"03",name:"Resumen"},
@@ -1419,6 +1420,142 @@ function secMes(R){
         </table>
         <div class="hint" style="padding:6px 12px">Costo teórico = consumo exacto de material. Costo por placas completas = redondeando a placas enteras a comprar${M.matUSD>0?(', desperdicio por placa incompleta '+fPct((M.totPlacasUSD-M.matUSD)/M.matUSD)):''}.</div></div></div>
     </div>`:''}`;
+}
+
+/* ===================== 00 · GUÍA DEL MES ===================== */
+const OLVIDADOS_FOAM=[["Depreciación de maquinaria y equipo",/depreci/i,"Indirecto fijo"],["Mantenimiento de maquinaria",/manten.*(maquin|equipo)|(maquin|equipo).*manten/i,"Indirecto fijo"],
+  ["Seguros",/seguro/i,"Indirecto fijo"],["Equipo de protección personal (EPP)",/\bEPP\b|protecci/i,"Indirecto fijo"],
+  ["Cuchillas / hojas de corte",/cuchill|hoja/i,"Indirecto variable"],["Adhesivos",/adhesiv|pegamento/i,"Indirecto variable"]];
+function capturadoV(v){ return v!==undefined&&v!==null&&v!==""; }
+function valMes(k,grupo,clave,base){ const prev=S.periodoVista; S.periodoVista=k; try{ return valPeriodo(grupo,clave,base); } finally{ S.periodoVista=prev; } }
+function revisionMes(){
+  const k=periodoKey(), R=computeAt(k), L=[];
+  const paso=(t,estado,que,porque,det,vista,btn)=>L.push({t,estado,que,porque,det:det||"",vista,btn});
+  const P=(S.periodos||{})[k]||{}; const lista=a=>a.slice(0,10).join(", ")+(a.length>10?"…":"");
+  // 1. Tipo de cambio
+  paso("Tipo de cambio",R.tc>0?"ok":"falta","Pesos por dólar con los que se costea el mes. Con Banxico activado se llena solo en Parámetros y costo financiero.",
+    "El foam y los precios de los clientes están en dólares: un tipo de cambio equivocado mueve el costo y la utilidad de todos los insertos.",
+    R.tc>0?`Tipo de cambio: ${fN(R.tc,4)}${S.control.tcAuto?" (Banxico"+(S.control.tcFecha?", "+S.control.tcFecha:"")+")":" (captura manual)"}.`:"","control");
+  // 2. Sueldos de planta
+  const dir=R.emp.filter(e=>e.tipo==="Directa"), dirN=dir.filter(e=>num(e.n)>0);
+  const dirSin=dirN.filter(e=>!(e.brutoPer>0)).map(e=>e.puesto||"(sin nombre)");
+  paso("Sueldos de planta",!dirN.length||dirN.every(e=>!(e.brutoPer>0))?"falta":dirSin.length?"revisar":"ok",
+    "Sueldo neto semanal por persona (lo que recibe cada trabajador) y cuántas personas hay en cada puesto, en Mano de obra.",
+    "Es el gasto fijo más grande de la planta y define la tarifa por hora que absorbe cada inserto.",
+    [dirN.length?`${dirN.reduce((a,e)=>a+num(e.n),0)} persona(s) en planta · costo empresa ${fMXN0(R.moDirecta)} al mes.`:"",dirSin.length?"Sin sueldo: "+lista(dirSin)+".":""].filter(Boolean).join(" "),"mano");
+  // 3. Sueldos de oficina
+  const adm=R.emp.filter(e=>e.tipo!=="Directa"&&num(e.n)>0), admSin=adm.filter(e=>!(e.brutoPer>0)).map(e=>e.puesto||"(sin nombre)");
+  paso("Sueldos de oficina y ventas",!adm.length?"opcional":admSin.length?"revisar":"ok",
+    "Sueldo neto de administración y ventas. Si un puesto no se paga en North Foam, deja 0 personas.",
+    "Estos sueldos se reparten en el costo integral de cada inserto; si faltan, los precios sugeridos salen bajos.",
+    admSin.length?"Con personas pero sin sueldo: "+lista(admSin)+".":"","mano");
+  // 4. Capacidad
+  const hu=valMes(k,"capacidad","horasUsadas",S.capacidad.horasUsadas);
+  paso("Capacidad y horas del mes",!(R.capPractica>0)?"falta":capturadoV(hu)?"ok":"revisar",
+    "Días, turnos y horas por turno del mes, descansos, y las horas que realmente se trabajaron (horas utilizadas), en Capacidad.",
+    "Con la capacidad se calcula la tarifa por hora; con las horas utilizadas se mide la capacidad ociosa que no se cobra a nadie.",
+    R.capPractica>0?`Capacidad práctica ${fN(R.capPractica,0)} h/mes${capturadoV(hu)?` · utilizadas ${fN(num(hu),0)} h`:" · faltan las horas utilizadas"}.`:"","capacidad");
+  // 5. Gastos fijos
+  const nombres=S.indirectos.map(it=>indKey(it));
+  const falt=OLVIDADOS_FOAM.filter(([n,re])=>!nombres.some(c=>re.test(c))).map(x=>x[0]);
+  const vacios=S.indirectos.filter(it=>{ const id=indKey(it); if(realValor("indirectos",id,k)!=null) return false;
+    const ov=(P.indirectos||{})[id]; return !capturadoV(it.m)&&!capturadoV(ov); }).map(it=>indKey(it));
+  const renta=S.indirectos.find(it=>/renta/i.test(indKey(it)));
+  paso("Gastos fijos e indirectos",renta&&!(montoIndirecto(renta,k)>0)?"falta":(falt.length||vacios.length)?"revisar":"ok",
+    "Importe del mes de cada concepto en Indirectos (renta, agua, internet, consumibles, mantenimiento, seguros…). Si un concepto no aplica este mes, escribe 0 para marcarlo como revisado.",
+    "Cada gasto que falta hace que el punto de equilibrio parezca más bajo y que se cotice barato.",
+    [falt.length?"No existen los renglones: "+falt.join(", ")+".":"",vacios.length?`Sin capturar (${vacios.length}): `+lista(vacios)+".":""].filter(Boolean).join(" "),
+    "indirectos",falt.length?{act:"guiaAddOlvidados",l:"Agregar los renglones que faltan"}:null);
+  // 6. Recibo de luz
+  const rr=valMes(k,"energia","reciboReal",S.energia.reciboReal);
+  paso("Recibo de luz (CFE)",capturadoV(rr)?(R.kwhVar>0?"ok":"revisar"):"falta",
+    "Importe del recibo de CFE del mes en Energía y pool (o súbelo en XML). Marca qué cargas eléctricas varían con la producción.",
+    "La energía de las máquinas entra al costo variable de cada pieza; el resto (clima, luz, oficina) es gasto fijo.",
+    capturadoV(rr)?`Recibo ${fMXN(num(rr))}${realValor("energia","reciboReal",k)!=null?" (XML)":""} · energía de proceso ${fPct(R.pctEnVar)} del consumo.`+(R.kwhVar>0?"":" Ninguna carga está marcada como variable."):"","energia");
+  // 7. Materiales y costeo de placas
+  const sinMat=R.integral.filter(i=>!(i.materialUSD>0)).map(i=>String(i.ins.id));
+  const catSin=(S.catalogo||[]).filter(m=>!(num(m.costo)>0)).map(m=>m.nombre);
+  paso("Precio del foam y costeo de placas",!R.integral.length?"falta":(sinMat.length||catSin.length)?"revisar":"ok",
+    "Precio vigente de cada placa en el catálogo de materiales y las piezas de cada inserto en Costeo de placas.",
+    "El material es el costo más grande de cada inserto; con las placas se calcula también cuántas comprar en el mes.",
+    [sinMat.length?"Insertos sin costo de material: "+lista(sinMat)+".":`${R.integral.length} inserto(s) con material.`,catSin.length?"Materiales sin precio: "+lista(catSin)+".":""].filter(Boolean).join(" "),"placas");
+  // 8. Ruta de proceso
+  const sinRuta=R.integral.filter(i=>i.conversion===0).map(i=>String(i.ins.id));
+  paso("Ruta de proceso (tiempos)",!R.integral.length?"falta":sinRuta.length?"revisar":"ok",
+    "Minutos de preparación y de producción por pieza de cada inserto, con cuántas personas, en Ruta de proceso.",
+    "Sin tiempos el inserto no absorbe mano de obra ni indirectos y su costo queda incompleto.",
+    sinRuta.length?"Sin ruta: "+lista(sinRuta)+".":"","ruta");
+  // 9. Precio de cliente
+  const sinPrecio=R.integral.filter(i=>!(i.precioClMXN>0)).map(i=>String(i.ins.id));
+  const perdida=R.integral.filter(i=>i.complete&&i.utilidad<0).map(i=>String(i.ins.id));
+  const bajoPiso=R.integral.filter(i=>i.precioMin!=null&&i.precioClMXN>0&&i.precioClMXN<i.precioMin).map(i=>String(i.ins.id));
+  paso("Precio de cliente",sinPrecio.length===R.integral.length?"falta":(sinPrecio.length||perdida.length)?"revisar":"ok",
+    "Precio de venta por pieza en dólares de cada inserto (Costeo mensual o Costeo de placas).",
+    "Con el precio se calculan ventas, margen, precio mínimo y punto de equilibrio.",
+    [sinPrecio.length?"Sin precio: "+lista(sinPrecio)+".":"",perdida.length?"Con pérdida (precio menor al costo integral): "+lista(perdida)+".":"",bajoPiso.length?"Debajo del precio piso: "+lista(bajoPiso)+".":""].filter(Boolean).join(" "),"precios");
+  // 10. Volumen del mes
+  const M=computeMes(R,k); const F=computeFacturado(R,k);
+  paso("Insertos y volumen del mes",M.act.length?"ok":"falta",
+    "Marca en Costeo mensual los insertos que se trabajan este mes y su volumen planeado.",
+    "Es el plan del mes: con él se calculan ventas, utilidad, requerimiento de placas, carga de planta y el plan contra el que se miden las variaciones.",
+    M.act.length?`${M.act.length} inserto(s) · ${fN(M.piezas,0)} piezas planeadas · ventas ${fMXN0(M.ventas)}${F.n?` · facturado ${fN(F.piezas,0)} piezas`:""}.`:"","mes");
+  // 11. Facturas de venta
+  paso("Facturas de venta del mes",F.n?(F.sinAsignar.length?"revisar":"ok"):"falta",
+    "Sube los XML de las facturas emitidas en el mes (y sus complementos de pago) en Facturas de venta.",
+    "Son las ventas reales: alimentan el comparativo contra el plan, la cobranza real y las variaciones del mes.",
+    F.n?`${F.n} factura(s) · ${fMXN0(F.mxn)} antes de IVA${F.sinAsignar.length?` · ${F.sinAsignar.length} concepto(s) sin inserto: asígnalos`:""}.`:"","facturas");
+  // 12. Compras, gastos y nómina
+  ensureCompras(); const V=realMes(k);
+  paso("Compras, gastos y nómina (XML)",!V.docs?"opcional":V.sinClasif.length?"revisar":"ok",
+    "Sube los XML de proveedores (foam, renta, CFE, servicios) y los recibos de nómina; clasifica cada concepto una vez.",
+    "Sustituyen la captura del mes con lo real y miden el precio real del foam.",
+    V.docs?`${V.docs} XML del mes${V.sinClasif.length?` · ${V.sinClasif.length} concepto(s) por clasificar`:" · todo clasificado"}.`:"","compras");
+  // 13. Producción
+  const X=computeProduccion(R,k);
+  paso("Registro de producción",X.regs.length?"ok":"opcional",
+    "Piezas buenas, rechazadas y minutos reales de cada corrida, en Producción y carga.",
+    "Mide eficiencia real contra la Ruta, consumo de foam por rechazos y la carga real de la planta.",
+    X.regs.length?`${X.regs.length} registro(s) · ${fN(X.piezas,0)} piezas buenas · ${fN(X.rech,0)} rechazadas${X.eficGlobal?` · eficiencia ${fPct(X.eficGlobal)}`:""}.`:"","produccion");
+  // 14. Validación
+  const rev=R.valid.filter(v=>v.rev);
+  paso("Validación",rev.length?"revisar":"ok","Revisa la lista de Validación: debe quedar todo en OK.",
+    "Detecta insertos incompletos, costos pendientes y errores antes de cerrar el mes.",
+    rev.length?"Por revisar: "+rev.map(v=>v.k).slice(0,5).join(" · ")+".":"","validacion");
+  // 15. Cierre
+  const cerrado=(P.estado==="cerrado");
+  paso("Cerrar el mes",cerrado?"ok":"opcional","Cuando todo esté en verde, cierra el mes en Costeo mensual.",
+    "El cierre congela costos y precios del mes para consultarlos después aunque cambie el catálogo, la nómina o el tipo de cambio.",
+    cerrado?`Cerrado el ${(P.cierre||{}).fecha||""}.`:"","mes");
+  return L;
+}
+const EST_GUIA={ok:["✓","Listo","v"],falta:["✕","Falta","r"],revisar:["!","Revisar","a"],opcional:["○","Opcional","g"]};
+function secGuia(){
+  const k=periodoKey(); const L=revisionMes();
+  const ok=L.filter(x=>x.estado==="ok").length, req=L.filter(x=>x.estado!=="opcional").length;
+  const okReq=L.filter(x=>x.estado==="ok"&&x.estado!=="opcional").length;
+  const falta=L.filter(x=>x.estado==="falta").length, revisar=L.filter(x=>x.estado==="revisar").length;
+  const pasos=L.map((x,i)=>{ const [ic,lab,cl]=EST_GUIA[x.estado];
+    return `<div class="card" style="margin-bottom:10px;border-left:4px solid var(--${cl==="v"?"green":cl==="r"?"red":cl==="a"?"amber":"line"})"><div class="pad" style="display:flex;gap:14px;align-items:flex-start">
+      <div style="flex:0 0 30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;background:var(--${cl==="v"?"green":cl==="r"?"red":cl==="a"?"amber":"gray"})">${ic}</div>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><b style="font-size:15.5px">${i+1}. ${escapeHtml(x.t)}</b><span class="lz ${cl}"><span class="b"></span>${lab}</span></div>
+        <p style="margin:6px 0 2px"><b>Qué capturar:</b> ${escapeHtml(x.que)}</p>
+        <p style="margin:2px 0;color:var(--muted)"><b>Para qué sirve:</b> ${escapeHtml(x.porque)}</p>
+        ${x.det?`<p style="margin:6px 0 0" class="mono">${escapeHtml(x.det)}</p>`:""}
+        <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+          ${x.btn&&puedeEditar()?`<button class="rowbtn" style="margin:0" data-click="${x.btn.act}()">${escapeHtml(x.btn.l)}</button>`:""}
+          <button class="rowbtn" style="margin:0" data-click="go('${x.vista}')">Ir a capturar</button></div>
+      </div></div></div>`; }).join("");
+  return head("Guía del mes","LISTA DE CAPTURA · "+nombreMes(k).toUpperCase(),
+    `Lo que hay que capturar en <b>${escapeHtml(nombreMes(k))}</b>, en orden, con qué es y para qué sirve. Cuando todo esté en verde, los números del Panel ejecutivo, del Costeo mensual y de los precios son confiables. El mes de trabajo se cambia en el Panel ejecutivo.`)
+  +`<div class="filterbar">${mesTrabajoChip(k)}${badgePeriodo(k)}</div>
+    <div class="hero">
+      ${hcard("Avance del mes",`${okReq} de ${req}`,okReq>=req?"todo listo":"pasos obligatorios listos","",true)}
+      ${hcard("Faltan",String(falta),falta?"pasos sin capturar":"ninguno",falta?"r":"v")}
+      ${hcard("Por revisar",String(revisar),revisar?"datos incompletos o raros":"ninguno",revisar?"a":"v")}
+      ${hcard("Opcionales",String(L.filter(x=>x.estado==="opcional").length),"mejoran la precisión")}
+    </div>
+    <div style="margin-top:6px">${pasos}</div>`;
 }
 
 /* ===================== D1/D2 · PRECIO MÍNIMO Y CONTRIBUCIÓN ===================== */
@@ -2580,7 +2717,7 @@ function renderSection(id){
   const R=(id==="mes"||id==="facturas"||id==="integral"||id==="produccion"||id==="compras"||id==="precios"||id==="variaciones"||id==="dashboard")?computeAt(periodoKey()):compute();
   const map={dashboard:secDashboard,mes:secMes,presupuesto:secPresupuesto,resumen:secResumen,control:secControl,capacidad:secCapacidad,mano:secMano,
     indirectos:secIndirectos,energia:secEnergia,centros:secCentros,
-    ruta:secRuta,financiero:secControl,facturas:secFacturas,compras:secCompras,precios:secPrecios,variaciones:secVariaciones,produccion:secProduccion,integral:secMes,placas:secDiseno,diagrama:secDiagrama,validacion:secValidacion};
+    ruta:secRuta,financiero:secControl,guia:secGuia,facturas:secFacturas,compras:secCompras,precios:secPrecios,variaciones:secVariaciones,produccion:secProduccion,integral:secMes,placas:secDiseno,diagrama:secDiagrama,validacion:secValidacion};
   const cont=document.getElementById("content");
   cont.className="content"+(puedeEditar()?"":" ro");
   cont.innerHTML=(map[id]||secDashboard)(R);
@@ -3043,6 +3180,9 @@ const app={
   setSensMetric(m){sensMetric=m;renderSection("dashboard");},
   setRutaFilter(v){rutaFilter=v;renderSection("ruta");},
   addEmp(){S.empleados.push({puesto:"Nuevo puesto",tipo:"Directa",centro:"Corte",period:"Semanal",sueldo:null,n:1,uniformes:0,capacitacion:0,ausent:0});save();renderSection("mano");},
+  guiaAddOlvidados(){ const nombres=S.indirectos.map(it=>indKey(it)); let n=0;
+    OLVIDADOS_FOAM.forEach(([nom,re,cl])=>{ if(!nombres.some(c=>re.test(c))){ S.indirectos.push({c:nom,cl,ce:cl==="Indirecto variable"?"Corte/Pegado/Ensamble":"Administración",m:null}); n++; } });
+    save(); renderKPIs(); renderChain(); renderSection(current); toast(n+" concepto(s) agregado(s) en Indirectos"); },
   addInd(){S.indirectos.push({c:"Nuevo concepto",cl:"Indirecto fijo",ce:"Otros",m:null});save();renderSection("indirectos");},
   addCarga(){S.energia.cargas.push({n:"Nueva carga",kw:0,h:0});save();renderSection("energia");},
   addRuta(){if(!S.inserts.length){toast("Primero agrega un inserto en Costeo de placas");return;} S.ruta.push({ins:S.inserts[0].id,op:20,proc:"Corte",ce:"Corte/Pegado/Ensamble",prep:null,lote:1,minMO:null,minMaq:null,nop:1,retrab:0,merma:0});save();renderSection("ruta");},
