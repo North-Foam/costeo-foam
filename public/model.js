@@ -164,6 +164,10 @@ function compute(){
   const rr=ev("reciboReal");
   const recibo=(rr==null||rr==="")?null:num(rr);
   R.energiaSubtotal=(recibo!=null?recibo:R.enEstimada)*f("energia");
+  // D2: parte de la energía que varía con la producción (cargas marcadas como de proceso)
+  R.kwhVar=en.cargas.filter(cargaVariable).reduce((a,c)=>a+num(c.kw)*num(c.h),0);
+  R.pctEnVar=R.consumo>0?R.kwhVar/R.consumo:0;
+  R.enVar=Math.max(0,R.energiaSubtotal-R.enFijo*f("energia"))*R.pctEnVar;
   // Pool y tasa
   R.pool=R.energiaSubtotal+R.moDirecta+R.maqTotal+R.indFabril;
   R.tasaPlanta=R.capPractica>0?R.pool/R.capPractica:null;
@@ -173,6 +177,9 @@ function compute(){
   R.horasDirectas=R.emp.filter(e=>e.tipo==="Directa").reduce((a,e)=>a+e.horas,0);
   R.baseIndHoras=R.horasDirectas>0?R.horasDirectas:R.capPractica;
   R.indRate=R.baseIndHoras>0?(R.energiaSubtotal+R.indFabril)/R.baseIndHoras:0;
+  // D2: gasto de planta variable (energía de proceso + indirectos variables) y su peso dentro de la tasa de indirectos
+  R.gastoPlantaVar=R.enVar+R.indVar;
+  R.pctIndVar=(R.energiaSubtotal+R.indFabril)>0?R.gastoPlantaVar/(R.energiaSubtotal+R.indFabril):0;
   R.centros=CENTROS.map(c=>{
     const dirEmp=R.emp.filter(e=>e.centro===c&&e.tipo==="Directa");
     const moCost=dirEmp.reduce((a,e)=>a+e.costo,0), moHrs=dirEmp.reduce((a,e)=>a+e.horas,0);
@@ -241,6 +248,14 @@ function compute(){
     const comisionMXN=precioClMXN*R.comisionVenta;
     const costoIntegral=base+financiamiento+garantiaMXN+comisionMXN;
     const precioSug = (complete && (1-margenObj-R.comisionVenta)>0)?(base+financiamiento+garantiaMXN)/(1-margenObj-R.comisionVenta):null;
+    // D1/D2: costo variable completo, precio piso (sólo costo variable) y precio de equilibrio (costo total, utilidad cero)
+    const indVarU=a.ind*R.pctIndVar;
+    const cvBase=materialMXN+indVarU;
+    const cvSinCom=cvBase*(1+R.finTotal+garantia);
+    const costoVar=cvSinCom+comisionMXN;
+    const precioMin=(materialUSD>0&&(1-R.comisionVenta)>0)?cvSinCom/(1-R.comisionVenta):null;
+    const precioEq=(complete&&(1-R.comisionVenta)>0)?(base+financiamiento+garantiaMXN)/(1-R.comisionVenta):null;
+    const minPza=estandarMinPza(ins.id);
     const utilidad = complete?precioClMXN-costoIntegral:null;
     const margenReal = (complete&&precioClMXN>0)?utilidad/precioClMXN:null;
     const markup = (complete&&costoIntegral>0)?utilidad/costoIntegral:null;
@@ -251,8 +266,8 @@ function compute(){
       else {luz="v";estado="Verde · cumple objetivo";}
     }
     const vol=getVolVista(String(ins.id))*f("volumen");
-    const contribUnit=precioClMXN-materialMXN;
-    return {ins,mermaMat,materialUSD,materialMXN,mo:a.mo,maq:a.maq,ind:a.ind,conversion,costoManuf,
+    const contribUnit=precioClMXN-costoVar;
+    return {ins,indVarU,cvSinCom,costoVar,precioMin,precioEq,minPza,contribHora:(minPza>0?contribUnit/(minPza/60):null),mermaMat,materialUSD,materialMXN,mo:a.mo,maq:a.maq,ind:a.ind,conversion,costoManuf,
       admin,comercial,logistica,financiamiento,garantiaMXN,comisionMXN,costoIntegral,margenObj,precioSug,
       precioClUSD,precioClMXN,utilidad,margenReal,markup,complete,luz,estado,nrows:a.nrows,
       vol,contribUnit,contribMes:contribUnit*vol,ingresoMes:precioClMXN*vol,
@@ -274,10 +289,12 @@ function compute(){
   const sinRuta=R.integral.filter(i=>i.conversion===0).length;
   const bajoObj=R.integral.filter(i=>i.complete&&i.margenReal<i.margenObj).length;
   const pend=(S.capacidad.horasUsadas==null?1:0)+(S.energia.reciboReal==null?1:0);
+  R.bajoPiso=R.integral.filter(i=>i.precioMin!=null&&i.precioClMXN>0&&i.precioClMXN<i.precioMin).length;
   R.valid=[
     {k:"Insertos sin ruta / sin tiempos",v:sinRuta,rev:sinRuta>0},
     {k:"Insertos con costeo INCOMPLETO",v:inc,rev:inc>0},
     {k:"Insertos con margen < objetivo",v:bajoObj,rev:bajoObj>0},
+    {k:"Insertos con precio debajo del piso (no cubren su costo variable)",v:R.bajoPiso,rev:R.bajoPiso>0},
     {k:"Costos mensuales clave PENDIENTES",v:pend,rev:pend>0},
     {k:"Centros sin capacidad práctica",v:(R.capPractica>0?0:CENTROS.length),rev:R.capPractica<=0},
     {k:"Tipo de cambio capturado",v:(R.tc>0?0:1),rev:!(R.tc>0)},
@@ -287,6 +304,8 @@ function compute(){
   return R;
 }
 function isNum(x){return x!==null&&x!==""&&isFinite(parseFloat(x));}
+// D2: una carga eléctrica es variable (de proceso) si así se marcó; si no se ha marcado, se infiere por su nombre
+function cargaVariable(c){ if(c&&c.v!=null) return !!c.v; return /m[aá]quina|corte|sierra|compresor|hilo|pegad|router|cnc|prensa|suaj|laminad|termo/i.test(String((c&&c.n)||"")); }
 function estadoCorto(s){return s==="COSTEO INCOMPLETO"?"Incompleto":s;}
 
 /* ===================== FORMATO ===================== */
@@ -392,6 +411,7 @@ document.addEventListener("change",e=>{
   const el=e.target; if(!el.dataset||!el.dataset.path) return;
   let val;
   if(el.dataset.type==="text"){ val=el.value; }
+  else if(el.dataset.type==="chk"){ val=!!el.checked; }
   else{
     if(el.value===""){ val=null; }
     else{ val=parseFloat(el.value); if(el.dataset.pct==="1") val=val/100; }
@@ -417,9 +437,11 @@ const SECTIONS=[
   {id:"ruta",ix:"12",name:"Ruta de proceso"},
   {id:"produccion",ix:"13",name:"Producción y carga"},
   {id:"mes",ix:"14",name:"Costeo mensual"},
-  {id:"placas",ix:"15",name:"Costeo de placas"},
-  {id:"diagrama",ix:"16",name:"Diagrama de corte"},
-  {id:"validacion",ix:"17",name:"Validación"}
+  {id:"precios",ix:"15",name:"Precio mínimo"},
+  {id:"variaciones",ix:"16",name:"Variaciones del mes"},
+  {id:"placas",ix:"17",name:"Costeo de placas"},
+  {id:"diagrama",ix:"18",name:"Diagrama de corte"},
+  {id:"validacion",ix:"19",name:"Validación"}
 ];
 let current="dashboard";
 
@@ -693,6 +715,7 @@ function secEnergia(R){
     <td>${inp(`energia.cargas.${i}.kw`)}</td>
     <td>${inp(`energia.cargas.${i}.h`)}</td>
     <td class="mono val-calc">${fN(num(c.kw)*num(c.h),0)}</td>
+    <td><input type="checkbox" data-path="energia.cargas.${i}.v" data-type="chk" ${cargaVariable(c)?'checked':''} title="Marca si el consumo de esta carga sube y baja con la producción (máquinas de proceso)"></td>
     <td><button class="del" data-click="delRow('energia.cargas',${i})">✕</button></td></tr>`).join("");
   return head("Energía y pool de manufactura","COSTEO_MANUFACTURA",
     "Tarifa comercial de baja tensión (PDBT): sólo cargo por consumo ($/kWh) + cargo fijo, sin cargo por demanda (eso aplica a media tensión con subestación). La base principal debe ser el recibo real de CFE; la estimación por potencia×horas es sólo validación. El pool reúne energía + MO directa + indirectos fabriles y define la tasa de planta.")
@@ -712,8 +735,9 @@ function secEnergia(R){
     </table></div></div>
   </div>
   <div class="card" style="margin-top:16px"><h3>Cargas eléctricas (validación)</h3><div class="body">
-    <div class="scroll" style="border:0;box-shadow:none"><table><thead><tr><th class="l">Equipo / carga</th><th>Potencia kW</th><th>Horas/mes</th><th>kWh/mes</th><th></th></tr></thead>
+    <div class="scroll" style="border:0;box-shadow:none"><table><thead><tr><th class="l">Equipo / carga</th><th>Potencia kW</th><th>Horas/mes</th><th>kWh/mes</th><th>Varía con<br>producción</th><th></th></tr></thead>
     <tbody>${loads}</tbody></table></div>
+    <div class="note" style="margin:8px 12px">Las cargas marcadas como <b>variables</b> (${fPct(R.pctEnVar)} del consumo) definen qué parte del recibo es energía de proceso: ${fMXN(R.enVar)} al mes entran al <b>costo variable</b> de cada pieza (precio mínimo, contribución y punto de equilibrio). Las cargas sin marcar (clima, iluminación, oficina) se quedan como gasto fijo.</div>
     <button class="rowbtn" data-click="addCarga()">+ Agregar carga</button></div></div>
   <div class="card" style="margin-top:16px"><h3>Pool de manufactura y tasa de planta</h3><div class="pad"><table>
     <tr><td class="l">Energía eléctrica</td><td class="mono val-link">${fMXN(R.energiaSubtotal)}</td></tr>
@@ -1138,7 +1162,7 @@ function badgePeriodo(k){
   if(e==="borrador") return `<span class="pill" style="background:var(--amberBg);color:#8a6100" title="Datos capturados sin cerrar">Borrador</span>`;
   return `<span class="pill" style="background:var(--grayBg);color:var(--muted)" title="Sin datos capturados">Sin datos</span>`;
 }
-const CIERRE_CAMPOS=["materialMXN","mo","maq","ind","admin","comercial","logistica","financiamiento","garantiaMXN","comisionMXN","costoIntegral","precioSug","precioClMXN","margenObj","disenoUSD"];
+const CIERRE_CAMPOS=["costoVar","precioMin","precioEq","materialMXN","mo","maq","ind","admin","comercial","logistica","financiamiento","garantiaMXN","comisionMXN","costoIntegral","precioSug","precioClMXN","margenObj","disenoUSD"];
 function snapshotCierre(R,k){
   const M=computeMes(R,k,true); const items={};
   R.integral.forEach(it=>{ const o={}; CIERRE_CAMPOS.forEach(c=>{ const v=it[c]; o[c]=(v==null||!isFinite(v))?null:Math.round(v*10000)/10000; }); o.complete=it.complete?1:0; o.tieneDiseno=it.tieneDiseno?1:0; items[String(it.ins.id)]=o; });
@@ -1150,7 +1174,8 @@ function itCongelado(it,c){
   o.utilidad=o.complete?o.precioClMXN-o.costoIntegral:null;
   o.margenReal=(o.complete&&o.precioClMXN>0)?o.utilidad/o.precioClMXN:null;
   o.markup=(o.complete&&o.costoIntegral>0)?o.utilidad/o.costoIntegral:null;
-  o.contribUnit=o.precioClMXN-o.materialMXN;
+  if(c.costoVar==null) o.costoVar=o.materialMXN; // meses cerrados antes de D2: el costo variable era sólo material
+  o.contribUnit=o.precioClMXN-o.costoVar;
   if(!o.complete){o.luz="g";o.estado="COSTEO INCOMPLETO";}
   else if(o.margenReal<0){o.luz="r";o.estado="Rojo · margen negativo";}
   else if(o.margenReal<o.margenObj){o.luz="a";o.estado="Amarillo · bajo objetivo";}
@@ -1168,13 +1193,14 @@ function computeMes(R,k,sinCongelar){
     const costo=it.complete?it.costoIntegral*vol:null;
     const material=it.materialMXN*vol;
     const util=it.complete?it.utilidad*vol:null;
-    return {it,i,id,inc,vol,ventas,costo,material,util,
-            contrib:(it.precioClMXN-it.materialMXN)*vol};
+    return {it,i,id,inc,vol,ventas,costo,material,util,variable:num(it.costoVar)*vol,
+            contrib:(it.precioClMXN-num(it.costoVar))*vol};
   });
   const act=filas.filter(f=>f.inc&&f.vol>0);
   const comp=act.filter(f=>f.it.complete);
   const ventas=act.reduce((a,f)=>a+f.ventas,0);
   const material=act.reduce((a,f)=>a+f.material,0);
+  const variable=act.reduce((a,f)=>a+f.variable,0);
   const contrib=act.reduce((a,f)=>a+f.contrib,0);
   const costoAbs=comp.reduce((a,f)=>a+f.costo,0);
   const utilAbs=comp.reduce((a,f)=>a+f.util,0);
@@ -1206,7 +1232,7 @@ function computeMes(R,k,sinCongelar){
   });
   const clientes=Object.values(porCli).map(g=>({...g,margen:(g.ventas>0&&g.completos?g.util/g.ventas:null)}))
                    .sort((a,b)=>b.ventas-a.ventas);
-  return {P,filas,act,comp,ventas,material,contrib,costoAbs,utilAbs,piezas,
+  return {P,filas,act,comp,ventas,material,variable,otrosVar:variable-material,contrib,costoAbs,utilAbs,piezas,
           margen:(ventas>0?utilAbs/ventas:null), fijos:(cong&&cong.gf!=null)?num(cong.gf):Pre.GF,congelado:cong,
           utilOper:contrib-((cong&&cong.gf!=null)?num(cong.gf):Pre.GF), incompletos:act.length-comp.length,
           pzRows,mats,matUSD,totPlacasUSD,clientes};
@@ -1282,6 +1308,7 @@ function secMes(R){
       <div class="card"><h3>Resultado del periodo · ${nombreMes(k)}</h3><div class="pad"><table class="fija">
         <tr><td class="l" style="width:58%">Ventas del mes</td><td class="mono val-calc">${fMXN(M.ventas)}</td></tr>
         <tr><td class="l">(−) Material</td><td class="mono val-calc">(${fMXN(M.material)})</td></tr>
+        <tr><td class="l">(−) Otros costos variables <span class="hint">(energía de proceso, consumibles, financiamiento, garantías, comisión)</span></td><td class="mono val-calc">(${fMXN(M.otrosVar)})</td></tr>
         <tr class="sub"><td class="l">= Margen de contribución</td><td class="mono">${fMXN(M.contrib)}</td></tr>
         <tr><td class="l">(−) Gastos fijos del mes</td><td class="mono val-calc">(${fMXN(M.fijos)})</td></tr>
         <tr class="total"><td class="l">= Utilidad de operación</td><td class="mono">${fMXN(M.utilOper)}</td></tr>
@@ -1301,7 +1328,7 @@ function secMes(R){
         <tr><th class="l" style="width:40%"></th><th>Proyectado</th><th>Facturado</th><th>Diferencia</th><th>Cumplimiento</th></tr>
         <tr><td class="l">Piezas</td><td class="mono val-calc">${fN(Pj.piezas,0)}</td><td class="mono val-calc" style="font-weight:700">${fN(F.piezas,0)}</td><td class="mono val-calc">${fN(F.piezas-Pj.piezas,0)}</td><td class="mono">${pctCumpl(F.piezas,Pj.piezas)==null?'—':fPct(pctCumpl(F.piezas,Pj.piezas))}</td></tr>
         <tr><td class="l">Ventas (MXN, antes de IVA)</td><td class="mono val-calc">${fMXN(Pj.ventas)}</td><td class="mono val-calc" style="font-weight:700">${fMXN(F.mxn)}</td><td class="mono val-calc">${fMXN(F.mxn-Pj.ventas)}</td><td class="l">${pc==null?'—':`<span class="lz ${luzCumpl(pc)}"><span class="b"></span>${fPct(pc)}</span>`}</td></tr>
-        <tr><td class="l">Margen de contribución (ventas − material)</td><td class="mono val-calc">${fMXN(M.contrib)}</td><td class="mono val-calc" style="font-weight:700">${fMXN(F.contrib)}</td><td class="mono val-calc">${fMXN(F.contrib-M.contrib)}</td><td></td></tr>
+        <tr><td class="l">Margen de contribución (ventas − costo variable)</td><td class="mono val-calc">${fMXN(M.contrib)}</td><td class="mono val-calc" style="font-weight:700">${fMXN(F.contrib)}</td><td class="mono val-calc">${fMXN(F.contrib-M.contrib)}</td><td></td></tr>
         <tr class="total"><td class="l">Utilidad de operación (contribución − gastos fijos)</td><td class="mono">${fMXN(M.utilOper)}</td><td class="mono">${fMXN(F.contrib-M.fijos)}</td><td class="mono">${fMXN(F.contrib-M.fijos-M.utilOper)}</td><td></td></tr>
       </table><div class="note" style="margin-top:10px">${F.n} factura(s) vigente(s)${F.sinAsignar.length?(' · <b>'+F.sinAsignar.length+' concepto(s) sin inserto</b> por '+fMXN(F.sinMXN)+' (cuentan en ventas pero sin costo de material)'):''}. Detalle por inserto y por mes en <b>Facturas de venta</b>.</div></div></div>`; })()}
 
@@ -1355,6 +1382,212 @@ function secMes(R){
     </div>`:''}`;
 }
 
+/* ===================== D1/D2 · PRECIO MÍNIMO Y CONTRIBUCIÓN ===================== */
+function situacionPrecio(i){
+  if(!(i.precioClMXN>0)) return {l:"g",t:"Sin precio de cliente"};
+  if(i.precioMin==null) return {l:"g",t:"Sin costo de material"};
+  if(i.precioClMXN<i.precioMin) return {l:"r",t:"Debajo del piso: pierde en cada pieza"};
+  if(i.precioEq==null) return {l:"a",t:"Cubre variable · falta ruta para el costo total"};
+  if(i.precioClMXN<i.precioEq) return {l:"a",t:"Cubre variable, no cubre fijos"};
+  if(i.precioSug!=null&&i.precioClMXN<i.precioSug) return {l:"a",t:"Con utilidad, bajo objetivo"};
+  return {l:"v",t:"Cumple objetivo"};
+}
+function mxUsd(x,tc){ return x==null?'—':`${fMXN(x)}<div class="hint">${tc>0?fUSD(x/tc):''}</div>`; }
+let COT={id:"",precio:"",vol:""};
+function cotizadorHTML(R){
+  const it=R.integral.find(i=>String(i.ins.id)===String(COT.id));
+  if(!it) return `<div class="note">Elige un inserto para simular un precio.</div>`;
+  const pUSD=COT.precio===""?it.precioClUSD:num(COT.precio); const vol=COT.vol===""?0:num(COT.vol);
+  const pMXN=pUSD*R.tc; const cv=num(it.cvSinCom)+pMXN*R.comisionVenta; const cu=pMXN-cv;
+  const util=it.complete?pMXN-(it.costoIntegral-num(it.comisionMXN)+pMXN*R.comisionVenta):null;
+  const mg=(util!=null&&pMXN>0)?util/pMXN:null;
+  const s=situacionPrecio({...it,precioClMXN:pMXN});
+  const fila=(k,v)=>`<tr><td class="l" style="width:42%">${k}</td><td class="mono val-calc">${v}</td></tr>`;
+  return `<table class="fija">
+    ${fila("Precio propuesto",fUSD(pUSD)+" · "+fMXN(pMXN))}
+    ${fila("Contribución por pieza",fMXN(cu)+(pMXN>0?" ("+fPct(cu/pMXN)+")":""))}
+    ${fila("Utilidad por pieza (costo integral)",util==null?'—':fMXN(util)+(mg==null?'':" · margen "+fPct(mg)))}
+    ${fila("Precio piso / equilibrio / objetivo",(it.precioMin==null?'—':fUSD(it.precioMin/R.tc))+" / "+(it.precioEq==null?'—':fUSD(it.precioEq/R.tc))+" / "+(it.precioSug==null?'—':fUSD(it.precioSug/R.tc)))}
+    ${vol>0?fila("Contribución del pedido ("+fN(vol,0)+" pzas)",fMXN(cu*vol)):""}
+    ${vol>0&&it.minPza?fila("Horas-persona que consume el pedido",fN(it.minPza*vol/60,1)+" h"):""}
+    <tr><td class="l">Situación</td><td class="l"><span class="lz ${s.l}"><span class="b"></span>${s.t}</span></td></tr>
+  </table>`;
+}
+document.addEventListener("input",e=>{
+  const el=e.target; if(!el.dataset||el.dataset.cot===undefined) return;
+  COT[el.dataset.cot]=el.value;
+  const box=document.getElementById("cotRes"); if(box){ const R=computeAt(periodoKey()); box.innerHTML=cotizadorHTML(R); }
+});
+document.addEventListener("change",e=>{
+  const el=e.target; if(!el.dataset||el.dataset.cot!=="id") return;
+  COT.id=el.value; COT.precio="";
+  const R=computeAt(periodoKey()); const it=R.integral.find(i=>String(i.ins.id)===String(COT.id));
+  const pi=document.querySelector('input[data-cot="precio"]'); if(pi) pi.value=it?(Math.round(it.precioClUSD*10000)/10000):"";
+  const box=document.getElementById("cotRes"); if(box) box.innerHTML=cotizadorHTML(R);
+});
+function secPrecios(R){
+  const k=periodoKey(); const X=computeProduccion(R,k);
+  const lista=R.integral.filter(pasaCliente).slice().sort((a,b)=>(b.contribHora==null?-1e15:b.contribHora)-(a.contribHora==null?-1e15:a.contribHora));
+  const S0=R.integral.map(situacionPrecio);
+  const nR=S0.filter(s=>s.l==="r").length, nEq=R.integral.filter(i=>i.precioEq!=null&&i.precioClMXN>0&&i.precioClMXN>=i.precioMin&&i.precioClMXN<i.precioEq).length;
+  const conCV=R.integral.filter(i=>i.precioClMXN>0&&i.precioMin!=null);
+  const vEst=volPeriodo(k); let ven=0,con=0; conCV.forEach(i=>{ const v=vEst(String(i.ins.id)); ven+=i.precioClMXN*v; con+=i.contribUnit*v; });
+  const ratio=ven>0?con/ven:(conCV.length?conCV.reduce((a,i)=>a+i.contribUnit/i.precioClMXN,0)/conCV.length:null);
+  const carga=X.cargaPlan;
+  const rows=lista.map((i,ix)=>{ const s=situacionPrecio(i);
+    return `<tr><td class="l mono">${escapeHtml(String(i.ins.id))}</td><td class="l">${escapeHtml(clienteLabel(i.ins))}</td>
+      <td class="mono val-calc">${mxUsd(i.precioClMXN,R.tc)}</td>
+      <td class="mono val-calc" title="Material ${fMXN(i.materialMXN)} · energía de proceso y consumibles ${fMXN(i.indVarU)} · financiamiento, garantías y comisión ${fMXN(i.costoVar-i.materialMXN-i.indVarU)}">${fMXN(i.costoVar)}</td>
+      <td class="mono val-calc" style="font-weight:700">${fMXN(i.contribUnit)}</td>
+      <td class="mono">${i.precioClMXN>0?fPct(i.contribUnit/i.precioClMXN):'—'}</td>
+      <td class="mono val-calc">${i.minPza==null?'—':fN(i.minPza,1)}</td>
+      <td class="mono val-calc" style="font-weight:700">${i.contribHora==null?'—':fMXN(i.contribHora)}</td>
+      <td class="mono val-calc">${mxUsd(i.precioMin,R.tc)}</td>
+      <td class="mono val-calc">${mxUsd(i.precioEq,R.tc)}</td>
+      <td class="mono val-calc">${mxUsd(i.precioSug,R.tc)}</td>
+      <td class="l"><span class="lz ${s.l}"><span class="b"></span>${s.t}</span></td></tr>`; }).join("");
+  if(!COT.id&&R.integral.length) COT.id=String(R.integral[0].ins.id);
+  const cotIt=R.integral.find(i=>String(i.ins.id)===String(COT.id));
+  return head("Precio mínimo y contribución","COSTO VARIABLE · PRECIO PISO · EQUILIBRIO",
+    "Para negociar: el <b>precio piso</b> sólo cubre el costo variable de la pieza (material con merma, energía de proceso, consumibles, financiamiento, garantías y comisión). Arriba del piso cada pieza aporta para pagar los gastos fijos. El <b>precio de equilibrio</b> cubre el costo integral completo (utilidad cero) y el <b>precio objetivo</b> agrega tu margen. La <b>contribución por hora</b> dice qué insertos aprovechan mejor las horas de la planta.")
+  +`<div class="filterbar">${clienteSelector("setCliVista")}<div class="exsel" style="display:inline-flex"><span>Periodo</span>
+        <input type="month" class="f" style="width:140px" value="${escapeHtml(k)}" data-change="setPeriodo(this.value)"></div>
+      <span class="hint">Tarifas de ${nombreMes(k)} · TC ${fN(R.tc,4)}</span></div>
+    <div class="hero">
+      ${hcard("Contribución promedio",ratio==null?"—":fPct(ratio),ven>0?"ponderada con el plan de "+nombreMes(k):"promedio simple (sin volumen)","",true)}
+      ${hcard("Debajo del piso",String(nR),nR?"insertos que pierden en cada pieza":"ninguno",nR?"r":"v")}
+      ${hcard("No cubren fijos",String(nEq),"arriba del piso, debajo del equilibrio",nEq?"a":"v")}
+      ${hcard("Carga de planta del plan",carga==null?"—":fPct(carga),carga==null?"sin plan o sin ruta":(carga>0.85?"planta casi llena: usa el equilibrio":"hay capacidad libre"),carga==null?"g":(carga>0.85?"a":"v"))}
+    </div>
+    <div class="tabla-integral" style="margin-top:14px"><table class="compact"><thead><tr>
+      <th class="l">Inserto</th><th class="l">Cliente</th><th>Precio<br>cliente u.</th><th>Costo<br>variable u.</th><th>Contribución<br>u.</th><th>Contrib.<br>%</th>
+      <th>Min-persona<br>por pza</th><th>Contribución<br>por hora</th><th>Precio piso</th><th>Precio<br>equilibrio</th><th>Precio<br>objetivo</th><th class="l">Situación</th>
+    </tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="note" style="margin-top:6px">Ordenado de mayor a menor <b>contribución por hora-persona</b> (contribución por pieza ÷ minutos estándar de la Ruta). Precios en pesos con su equivalente en dólares abajo. Pasa el cursor sobre el costo variable para ver su desglose. La mano de obra, la renta y los demás gastos se consideran fijos: no cambian por aceptar un pedido más.</div>
+    <div class="grid2" style="margin-top:16px">
+      <div class="card"><h3>Simulador de precio</h3><div class="pad">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+          <div class="exsel" style="display:inline-flex"><span>Inserto</span><select data-cot="id">${R.integral.map(i=>`<option value="${escapeHtml(String(i.ins.id))}" ${String(i.ins.id)===String(COT.id)?'selected':''}>${escapeHtml(String(i.ins.id))}</option>`).join("")}</select></div>
+          <div class="exsel" style="display:inline-flex"><span>Precio US$</span><input class="f" type="number" step="any" style="width:110px;pointer-events:auto" data-cot="precio" value="${COT.precio!==""?escapeHtml(COT.precio):(cotIt?Math.round(cotIt.precioClUSD*10000)/10000:"")}"></div>
+          <div class="exsel" style="display:inline-flex"><span>Piezas</span><input class="f" type="number" step="any" style="width:90px;pointer-events:auto" data-cot="vol" value="${escapeHtml(COT.vol)}" placeholder="opcional"></div>
+        </div>
+        <div id="cotRes">${cotizadorHTML(R)}</div>
+        <div class="note" style="margin-top:8px">El simulador no guarda nada: sirve para probar un precio antes de cotizar.</div></div></div>
+      <div class="card"><h3>Cómo usar cada precio</h3><div class="pad"><div class="note" style="border:0;background:none;padding:0">
+        <b>Precio piso:</b> el mínimo absoluto. Sólo tiene sentido aceptarlo para llenar capacidad ociosa y por tiempo limitado; abajo de él cada pieza cuesta dinero.<br><br>
+        <b>Precio de equilibrio:</b> cubre material, conversión y gastos de operación con la tasa del mes. Si la planta está llena (carga mayor a 85%), éste es tu mínimo real, porque cada hora usada desplaza a otro inserto.<br><br>
+        <b>Precio objetivo:</b> equilibrio más tu margen objetivo. Es el precio para cotizar.<br><br>
+        <b>Contribución por hora:</b> si hay que elegir qué producir, prioriza los insertos de arriba de la tabla.</div></div></div>
+    </div>`;
+}
+
+/* ===================== D3 · VARIACIONES PLAN VS REAL ===================== */
+var SIN_REAL=false; // al calcular el plan se ignoran los XML (sólo captura manual / catálogo)
+function computeVariaciones(k){
+  const Rr=computeAt(k);
+  let Rp; SIN_REAL=true; try{ Rp=computeAt(k); } finally{ SIN_REAL=false; }
+  const Mp=computeMes(Rp,k);
+  const F=computeFacturado(Rr,k);
+  const X=computeProduccion(Rr,k);
+  const byP=Object.fromEntries(Mp.filas.map(f=>[f.id,f]));
+  const ids=[...new Set(Mp.act.map(f=>f.id).concat(Object.keys(F.porIns)))].filter(id=>byP[id])
+    .sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
+  const com=Rp.comisionVenta;
+  const filas=ids.map(id=>{
+    const fp=byP[id], it=fp.it; const qp=(fp.inc&&fp.vol>0)?fp.vol:0;
+    const r=F.porIns[id]||{q:0,mxn:0}; const qr=r.q;
+    const pp=it.precioClMXN, cup=it.precioClMXN-num(it.costoVar);
+    return {id,it,qp,qr,pp,pr:qr?r.mxn/qr:null,mxnR:r.mxn,cup,vVolMez:(qr-qp)*cup,vPrecio:(r.mxn-pp*qr)*(1-com)};
+  });
+  const Qp=filas.reduce((a,x)=>a+x.qp,0), Qr=filas.reduce((a,x)=>a+x.qr,0);
+  const CPp=filas.reduce((a,x)=>a+x.qp*x.cup,0), CRp=filas.reduce((a,x)=>a+x.qr*x.cup,0);
+  const cuProm=Qp>0?CPp/Qp:0;
+  const vVol=Qp>0?(Qr-Qp)*cuProm:CRp, vMez=Qp>0?CRp-Qr*cuProm:0;
+  const vPrecio=filas.reduce((a,x)=>a+x.vPrecio,0);
+  // Material: compras reales de foam vs. consumo estándar de lo producido (o facturado si no hay registro de producción)
+  const V=realMes(k); const stdPl={}, stdUSD={};
+  Rp.integral.forEach(it=>{
+    const id=String(it.ins.id); const g=X.porIns[id]; const qf=(F.porIns[id]||{}).q||0;
+    const q=(g&&g.pzas>0)?g.pzas:qf; if(!(q>0)) return;
+    const dz=disenoCalc(it.ins); if(!dz) return; const merma=num(it.mermaMat);
+    dz.piezas.forEach(p=>{ const M=dz.mats[(num(p.mat)||1)-1]||matEff({}); const nom=M.nombre||""; if(!(p.ppp>0)) return;
+      stdPl[nom]=(stdPl[nom]||0)+num(p.cant)/p.ppp*q*(1+merma); if(stdUSD[nom]==null) stdUSD[nom]=num(M.precio); });
+  });
+  const mats=Object.keys(V.mat).sort().map(nom=>{
+    const g=V.mat[nom]; const pUSD=stdUSD[nom]!=null?stdUSD[nom]:num((catFind(nom)||{}).costo); const pStd=pUSD*Rp.tc; const plStd=stdPl[nom]||0;
+    return {nom,placas:g.placas,mxn:g.mxn,pStd,pReal:g.placas>0?g.mxn/g.placas:null,plStd,vP:pStd*g.placas-g.mxn,vU:(plStd-g.placas)*pStd};
+  });
+  const vMatP=mats.reduce((a,m)=>a+m.vP,0), vMatU=mats.reduce((a,m)=>a+m.vU,0);
+  // Gastos del mes: fijos + variables de planta (energía de proceso y consumibles), plan vs. real
+  const Pr=computePresupuesto(Rr,k);
+  const gPlan=Mp.fijos+Rp.gastoPlantaVar, gReal=Pr.GF+Rr.gastoPlantaVar;
+  const vGastos=gPlan-gReal;
+  const uoPlan=Mp.contrib-Mp.fijos;
+  const puente=[
+    {k:"Volumen de ventas",v:vVol,d:"más o menos piezas que el plan, a la contribución promedio planeada"},
+    {k:"Mezcla de productos",v:vMez,d:"se vendieron insertos con más o menos contribución que la mezcla planeada"},
+    {k:"Precio de venta y tipo de cambio",v:vPrecio,d:"precio real facturado contra precio del catálogo (neto de comisión)"},
+    {k:"Precio del foam",v:vMatP,d:mats.length?"precio real de las placas compradas contra el precio estándar":"sin compras de foam clasificadas en el mes"},
+    {k:"Consumo de foam",v:vMatU,d:mats.length?"placas compradas contra placas estándar de lo producido (incluye cambios de inventario)":"sin compras de foam clasificadas en el mes"},
+    {k:"Gastos del mes",v:vGastos,d:"gastos reales (XML) contra los capturados o del catálogo"}
+  ];
+  const uoReal=uoPlan+puente.reduce((a,x)=>a+x.v,0);
+  const tarMO=Rr.horasDirectas>0?Rr.moDirecta/Rr.horasDirectas:0;
+  return {k,ok:F.n>0,Rp,Rr,Mp,F,X,filas,Qp,Qr,cuProm,mats,uoPlan,uoReal,puente,gPlan,gReal,
+          sinXmlGastos:!realMes(k).docs,
+          mo:X.regs.length?{hStd:X.hStdProd,hReal:X.hReal,tar:tarMO,v:(X.hStdProd-X.hReal)*tarMO}:null};
+}
+function secVariaciones(R){
+  const k=periodoKey(); const V=computeVariaciones(k);
+  const sel=`<div class="filterbar"><div class="exsel" style="display:inline-flex"><span>Periodo</span>
+        <input type="month" class="f" style="width:140px" value="${escapeHtml(k)}" data-change="setPeriodo(this.value)"></div>${badgePeriodo(k)}
+      <span class="hint">${nombreMes(k)}</span></div>`;
+  const lead="Explica por qué la utilidad real del mes fue distinta a la planeada. El <b>plan</b> son los volúmenes de Costeo mensual con los costos estándar del mes (captura manual o catálogo). Lo <b>real</b> sale de las facturas de venta, las compras de foam y gastos en XML y el registro de producción. Verde = a favor de la utilidad; rojo = en contra.";
+  if(!V.ok) return head("Variaciones del mes","PLAN VS. REAL",lead)+sel+`<div class="note">Aún no hay facturas de venta de ${nombreMes(k)}. Súbelas en <b>Facturas de venta</b> (y, si los tienes, los XML de compras y el registro de producción) para ver las variaciones.</div>`;
+  const col=v=>`style="color:${v>0.005?'var(--green)':(v<-0.005?'var(--red)':'inherit')}"`;
+  const sg=v=>(v>0.005?'+':'')+fMXN(v);
+  const total=V.uoReal-V.uoPlan;
+  const bridge=V.puente.map(x=>`<tr><td class="l">${x.k}<div class="hint">${x.d}</div></td><td class="mono" ${col(x.v)}>${sg(x.v)}</td></tr>`).join("");
+  const fRows=V.filas.map(x=>`<tr><td class="l mono">${escapeHtml(x.id)}</td><td class="l">${escapeHtml(clienteLabel(x.it.ins))}</td>
+      <td class="mono">${fN(x.qp,0)}</td><td class="mono" style="font-weight:700">${fN(x.qr,0)}</td>
+      <td class="mono val-calc">${fMXN(x.pp)}</td><td class="mono val-calc">${x.pr==null?'—':fMXN(x.pr)}</td><td class="mono val-calc">${fMXN(x.cup)}</td>
+      <td class="mono" ${col(x.vVolMez)}>${sg(x.vVolMez)}</td><td class="mono" ${col(x.vPrecio)}>${sg(x.vPrecio)}</td></tr>`).join("");
+  const mRows=V.mats.map(m=>`<tr><td class="l">${escapeHtml(m.nom)}</td><td class="mono val-calc">${fN(m.placas,0)}</td><td class="mono val-calc">${fN(m.plStd,1)}</td>
+      <td class="mono val-calc">${fMXN(m.pStd)}</td><td class="mono val-calc">${m.pReal==null?'—':fMXN(m.pReal)}</td>
+      <td class="mono" ${col(m.vP)}>${sg(m.vP)}</td><td class="mono" ${col(m.vU)}>${sg(m.vU)}</td></tr>`).join("");
+  return head("Variaciones del mes","PLAN VS. REAL",lead)+sel
+  +`<div class="hero">
+      ${hcard("Utilidad de operación planeada",fMXN0(V.uoPlan),fN(V.Qp,0)+" pzas planeadas","",true)}
+      ${hcard("Utilidad de operación real",fMXN0(V.uoReal),fN(V.Qr,0)+" pzas facturadas",V.uoReal>=0?"v":"r")}
+      ${hcard("Diferencia",(total>0?"+":"")+fMXN0(total),total>=0?"a favor del plan":"en contra del plan",total>=0?"v":"r")}
+      ${hcard("Mayor causa",(function(){ const m=V.puente.slice().sort((a,b)=>Math.abs(b.v)-Math.abs(a.v))[0]; return m&&Math.abs(m.v)>0.5?`<span style="font-size:20px">${m.k}</span>`:"—"; })(),"variación más grande del mes")}
+    </div>
+    <div class="grid2" style="margin-top:4px">
+      <div class="card"><h3>Del plan a lo real · ${nombreMes(k)}</h3><div class="pad"><table class="fija">
+        <tr class="sub"><td class="l" style="width:62%">Utilidad de operación planeada</td><td class="mono">${fMXN(V.uoPlan)}</td></tr>
+        ${bridge}
+        <tr class="total"><td class="l">= Utilidad de operación real (estimada)</td><td class="mono">${fMXN(V.uoReal)}</td></tr>
+      </table></div></div>
+      <div class="card"><h3>Lectura</h3><div class="pad"><div class="note" style="border:0;background:none;padding:0">
+        ${V.F.sinAsignar.length?`<b>${V.F.sinAsignar.length} concepto(s) facturado(s) sin inserto</b> por ${fMXN(V.F.sinMXN)} no entran al cálculo: asígnalos en Facturas de venta.<br><br>`:''}
+        ${V.mats.length?'':'Sin compras de foam clasificadas este mes: el material se toma al costo estándar. Sube los XML en <b>Compras, gastos y nómina</b> para medir precio y consumo reales.<br><br>'}
+        ${V.sinXmlGastos?'Sin XML de gastos este mes: los gastos reales se toman igual a los capturados, por eso su variación sale en cero.<br><br>':''}
+        Gastos del mes: plan ${fMXN(V.gPlan)} · real ${fMXN(V.gReal)} (fijos más energía de proceso y consumibles).<br><br>
+        La utilidad real es una estimación de gestión antes de impuestos: el material se mide con las compras del mes, así que una compra grande para inventario aparece como consumo mayor.</div></div></div>
+    </div>
+    <div class="sechead" style="margin-top:18px"><h2 style="font-size:17px">Por inserto</h2><span class="src">volumen, mezcla y precio</span></div>
+    <div class="tabla-integral" style="margin-top:8px"><table class="compact"><thead><tr><th class="l">Inserto</th><th class="l">Cliente</th><th>Piezas<br>plan</th><th>Piezas<br>reales</th>
+      <th>Precio<br>plan u.</th><th>Precio<br>real u.</th><th>Contribución<br>plan u.</th><th>Var. volumen<br>y mezcla</th><th>Var.<br>precio</th></tr></thead><tbody>${fRows}</tbody></table></div>
+    ${V.mats.length?`<div class="sechead" style="margin-top:18px"><h2 style="font-size:17px">Foam: precio y consumo</h2><span class="src">compras del mes vs. estándar</span></div>
+    <div class="tabla-integral" style="margin-top:8px"><table class="compact"><thead><tr><th class="l">Material</th><th>Placas<br>compradas</th><th>Placas<br>estándar</th><th>Precio<br>estándar</th><th>Precio<br>real</th><th>Var.<br>precio</th><th>Var.<br>consumo</th></tr></thead><tbody>${mRows}</tbody></table></div>
+    <div class="note" style="margin-top:6px">Placas estándar = piezas producidas (registro de producción; si no hay, piezas facturadas) × placas por pieza del Costeo de placas, con su % de merma.</div>`:''}
+    ${V.mo?`<div class="card" style="margin-top:16px"><h3>Mano de obra (informativo)</h3><div class="pad"><table class="fija">
+      <tr><td class="l" style="width:62%">Horas-persona estándar de lo producido</td><td class="mono val-calc">${fN(V.mo.hStd,1)} h</td></tr>
+      <tr><td class="l">Horas-persona reales registradas</td><td class="mono val-calc">${fN(V.mo.hReal,1)} h</td></tr>
+      <tr class="total"><td class="l">Eficiencia en pesos <span class="hint">(a ${fMXN(V.mo.tar)}/h)</span></td><td class="mono" ${col(V.mo.v)}>${sg(V.mo.v)}</td></tr>
+    </table><div class="note" style="margin-top:8px">La nómina es fija, así que esto no cambia la utilidad del mes: mide horas que sobraron o faltaron y que se pueden usar en más producción.</div></div></div>`:''}`;
+}
+
 /* ===================== PRODUCCIÓN REAL Y CARGA DE PLANTA ===================== */
 function ensureProduccion(){ if(!Array.isArray(S.produccion)) S.produccion=[]; }
 function nuevoIdReg(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
@@ -1387,7 +1620,7 @@ function computeProduccion(R,k){
     const req=std!=null?std*plan/60:null; if(req) hReq+=req;
     if(g&&std!=null) hStdProd+=std*g.pzas/60;
     const efic=(real&&std!=null)?std/real:null;
-    const contribH=(it&&std)?(it.precioClMXN-it.materialMXN)/(std/60):null;
+    const contribH=(it&&std)?it.contribUnit/(std/60):null;
     return {id,it,plan,std,req,g,real,efic,contribH};
   });
   const hReal=minPersona/60, hDisp=R.horasDirectas||0;
@@ -1499,6 +1732,7 @@ function realMes(k){
 }
 // Valor real (de XML) que sustituye la captura del mes: indirectos, recibo CFE y sueldo por puesto
 function realValor(grupo,clave,mk){
+  if(SIN_REAL) return null;
   if(!/^\d{4}-\d{2}$/.test(String(mk||""))) return null;
   const v=realMes(mk);
   if(grupo==="energia"&&clave==="reciboReal") return v.energia;
@@ -1693,7 +1927,7 @@ function computeFacturado(R,key){
   const byId=Object.fromEntries(R.integral.map(i=>[String(i.ins.id),i]));
   const lista=S.facturas.filter(fa=>enPeriodo(fa.fecha,key));
   const vig=lista.filter(fa=>!fa.cancelada);
-  const porIns={}; const sinAsignar=[]; let mxn=0, piezas=0, material=0, utilidad=0, utilCompleta=true;
+  const porIns={}; const sinAsignar=[]; let mxn=0, piezas=0, material=0, variable=0, utilidad=0, utilCompleta=true;
   vig.forEach(fa=>{
     const sg=facSigno(fa), tc=facTC(fa,R.tc);
     (fa.conceptos||[]).forEach(c=>{
@@ -1704,12 +1938,12 @@ function computeFacturado(R,key){
       if(!porIns[id]) porIns[id]={q:0,mxn:0};
       porIns[id].q+=q; porIns[id].mxn+=imp; piezas+=q;
       const it=byId[id];
-      if(it){ material+=it.materialMXN*q; if(it.complete) utilidad+=imp-it.costoIntegral*q; else utilCompleta=false; }
+      if(it){ material+=it.materialMXN*q; variable+=num(it.cvSinCom)*q+imp*R.comisionVenta; if(it.complete) utilidad+=imp-it.costoIntegral*q; else utilCompleta=false; }
     });
   });
   const sinMXN=sinAsignar.reduce((a,c)=>a+c.imp,0);
   return {key,lista,vig,n:vig.length,canceladas:lista.length-vig.length,porIns,sinAsignar,sinMXN,mxn,piezas,material,
-          contrib:mxn-sinMXN-material,utilidad,utilCompleta};
+          variable,contrib:mxn-sinMXN-variable,utilidad,utilCompleta};
 }
 function proyectadoPeriodo(R,key){
   const getVol=volPeriodo(key); let ventas=0,piezas=0; const porIns={};
@@ -1894,7 +2128,7 @@ function secDashboard(R){
     : hcard("Margen ponderado", "—", "requiere ruta y volumen", "g");
   const ingresoCard = R.anyVol
     ? hcard("Ingreso mensual", fMXN0(R.ingresoMesTot), "de los insertos con volumen", "")
-    : hcard("Contribución unit. prom.", fMXN(promedio(R.integral.map(i=>i.contribUnit))), "precio − material (antes de conversión)", "");
+    : hcard("Contribución unit. prom.", fMXN(promedio(R.integral.map(i=>i.contribUnit))), "precio − costo variable", "");
   const utilCard = R.anyVol && R.utilMesComp
     ? hcard("Utilidad mensual", fMXN0(R.utilMesComp), "insertos completos con volumen", R.utilMesComp<0?"r":"v")
     : hcard("Utilidad mensual", "—", "captura volumen y ruta", "g");
@@ -2117,16 +2351,17 @@ function avgContribRatio(R){
 }
 function computePresupuesto(R,pk){
   const key=(pk!==undefined)?pk:(S.periodoVista||"catalogo");
-  const gfManuf=R.pool, gfAdmin=R.indAdmin+R.moAdmin, gfComer=R.indComercial+R.moComercial,
+  const gfManuf=R.pool-R.gastoPlantaVar, gfAdmin=R.indAdmin+R.moAdmin, gfComer=R.indComercial+R.moComercial,
         gfLog=R.indLog, gfFin=R.indFin, otros=num(S.presupuesto.otrosFijos);
   const GF=gfManuf+gfAdmin+gfComer+gfLog+gfFin+otros;
   const getVol=volPeriodo(key);
   const esAnio=String(key).indexOf("anio:")===0;
   const meses=esAnio?Math.max(1,Object.keys(S.periodos||{}).filter(k=>k.indexOf(String(key).slice(5)+"-")===0).length):1;
-  let ventas=0, matMes=0;
+  let ventas=0, matMes=0, varMes=0;
   const fv=f("volumen");
-  R.integral.forEach(i=>{ const v=getVol(String(i.ins.id))*fv; ventas+=i.precioClMXN*v; matMes+=i.materialMXN*v; });
-  const contribMes=ventas-matMes;
+  R.integral.forEach(i=>{ const v=getVol(String(i.ins.id))*fv; ventas+=i.precioClMXN*v; matMes+=i.materialMXN*v; varMes+=num(i.costoVar)*v; });
+  const otrosVar=varMes-matMes;
+  const contribMes=ventas-varMes;
   const conVol=ventas>0;
   const ratio=conVol?(ventas>0?contribMes/ventas:0):avgContribRatio(R);
   const GFper=GF*meses;
@@ -2136,7 +2371,7 @@ function computePresupuesto(R,pk){
   const faltante=(PE!=null&&conVol&&ventas<PE)?(PE-ventas):null;
   const meta=(S.presupuesto.meta==null||S.presupuesto.meta==="")?null:num(S.presupuesto.meta);
   return {key,etiqueta:etiquetaPeriodo(key),meses,gfManuf,gfAdmin,gfComer,gfLog,gfFin,otros,
-          GF:GFper,GFmes:GF,ventas,matMes,contribMes,conVol,ratio,PE,utilOper,margenSeg,faltante,meta};
+          GF:GFper,GFmes:GF,ventas,matMes,varMes,otrosVar,gastoPlantaVar:R.gastoPlantaVar,contribMes,conVol,ratio,PE,utilOper,margenSeg,faltante,meta};
 }
 function secPresupuesto(R){
   const P=computePresupuesto(R);
@@ -2150,13 +2385,14 @@ function secPresupuesto(R){
   const pnl=`<table>
     <tr><td class="l">Ventas netas mensuales</td><td class="mono val-calc">${P.conVol?fMXN(P.ventas):'<span class="val-pend">captura volúmenes</span>'}</td></tr>
     <tr><td class="l">(−) Costo variable — material</td><td class="mono val-calc">${P.conVol?'('+fMXN(P.matMes)+')':'—'}</td></tr>
+    <tr><td class="l">(−) Otros costos variables <span class="hint">(energía de proceso, consumibles, financ., garantías, comisión)</span></td><td class="mono val-calc">${P.conVol?'('+fMXN(P.otrosVar)+')':'—'}</td></tr>
     <tr class="sub"><td class="l">= Margen de contribución${P.conVol?' ('+fPct(P.ratio)+')':''}</td><td class="mono">${P.conVol?fMXN(P.contribMes):'—'}</td></tr>
     <tr><td class="l">(−) Gastos fijos de operación</td><td class="mono val-calc">(${fMXN(P.GF)})</td></tr>
     <tr class="total"><td class="l">= Utilidad (pérdida) de operación</td><td class="mono">${P.utilOper==null?'—':fMXN(P.utilOper)}</td></tr>
   </table>`;
 
   const gf=`<table>
-    <tr><td class="l">Manufactura (energía, MO directa, indirectos fabriles)</td><td class="mono val-calc">${fMXN(P.gfManuf)}</td></tr>
+    <tr><td class="l">Manufactura (MO directa, energía fija, indirectos fabriles fijos)<div class="hint">No incluye ${fMXN(P.gastoPlantaVar)} de energía de proceso y consumibles: ya van en el costo variable de cada pieza</div></td><td class="mono val-calc">${fMXN(P.gfManuf)}</td></tr>
     <tr><td class="l">Administración (nómina + indirectos)</td><td class="mono val-calc">${fMXN(P.gfAdmin)}</td></tr>
     <tr><td class="l">Comercial (nómina + indirectos)</td><td class="mono val-calc">${fMXN(P.gfComer)}</td></tr>
     <tr><td class="l">Logística</td><td class="mono val-calc">${fMXN(P.gfLog)}</td></tr>
@@ -2176,7 +2412,7 @@ function secPresupuesto(R){
   </table>`;
 
   return head("Presupuesto y punto de equilibrio","ESTADO DE RESULTADOS · EQUILIBRIO",
-    "Hoja financiera de la empresa. El costo variable es el material; la mano de obra y los indirectos se tratan como gastos fijos del periodo. Punto de equilibrio = gastos fijos ÷ margen de contribución. Consulta cualquier mes trabajado o el acumulado de un año.")
+    "Hoja financiera de la empresa. El costo variable de cada pieza incluye material, energía de proceso, consumibles (indirectos variables), financiamiento, garantías y comisión; la mano de obra, la renta y los demás indirectos se tratan como gastos fijos del periodo. Punto de equilibrio = gastos fijos ÷ margen de contribución. Consulta cualquier mes trabajado o el acumulado de un año.")
   +`<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
       ${periodoSelector()}
       <span class="hint">${escapeHtml(P.etiqueta)}${P.meses>1?(" · "+P.meses+" meses acumulados"):""}${P.conVol?"":" · sin volúmenes capturados en este periodo"}</span>
@@ -2204,13 +2440,13 @@ function secPresupuesto(R){
         return `<div class="card full"><h3>Real facturado vs. proyectado · ${escapeHtml(P.etiqueta)}</h3><div class="pad"><table class="fija">
           <tr><th class="l" style="width:40%"></th><th>Proyectado</th><th>Facturado (real)</th><th>Diferencia</th></tr>
           <tr><td class="l">Ventas netas</td><td class="mono val-calc">${fMXN(P.ventas)}</td><td class="mono val-calc" style="font-weight:700">${fMXN(F.mxn)}</td><td class="mono val-calc">${fMXN(F.mxn-P.ventas)}</td></tr>
-          <tr><td class="l">(−) Costo variable — material</td><td class="mono val-calc">(${fMXN(P.matMes)})</td><td class="mono val-calc">(${fMXN(F.material)})</td><td class="mono val-calc">${fMXN(P.matMes-F.material)}</td></tr>
+          <tr><td class="l">(−) Costo variable</td><td class="mono val-calc">(${fMXN(P.varMes)})</td><td class="mono val-calc">(${fMXN(F.variable)})</td><td class="mono val-calc">${fMXN(P.varMes-F.variable)}</td></tr>
           <tr class="sub"><td class="l">= Margen de contribución</td><td class="mono">${fMXN(P.contribMes)}</td><td class="mono">${fMXN(F.contrib)}</td><td class="mono">${fMXN(F.contrib-P.contribMes)}</td></tr>
           <tr><td class="l">(−) Gastos fijos</td><td class="mono val-calc">(${fMXN(P.GF)})</td><td class="mono val-calc">(${fMXN(P.GF)})</td><td></td></tr>
           <tr class="total"><td class="l">= Utilidad de operación</td><td class="mono">${P.utilOper==null?'—':fMXN(P.utilOper)}</td><td class="mono">${fMXN(uo)}</td><td class="mono">${P.utilOper==null?'—':fMXN(uo-P.utilOper)}</td></tr>
           <tr><td class="l">Cumplimiento de ventas</td><td></td><td class="mono">${pc==null?'—':fPct(pc)}</td><td></td></tr>
           <tr><td class="l">Facturado vs. punto de equilibrio</td><td></td><td class="mono">${P.PE==null?'—':(F.mxn>=P.PE?('+'+fMXN(F.mxn-P.PE)+' arriba'):(fMXN(F.mxn-P.PE)+' abajo'))}</td><td></td></tr>
-        </table><div class="note" style="margin-top:10px">${F.n} factura(s) vigente(s). Material real = costo de material por pieza × piezas facturadas de cada inserto${F.sinAsignar.length?('; '+F.sinAsignar.length+' concepto(s) sin inserto no llevan costo de material'):''}.</div></div></div>`; })()}
+        </table><div class="note" style="margin-top:10px">${F.n} factura(s) vigente(s). Costo variable real = costo variable estándar por pieza × piezas facturadas de cada inserto (la comisión sobre el importe facturado)${F.sinAsignar.length?('; '+F.sinAsignar.length+' concepto(s) sin inserto no llevan costo de material'):''}.</div></div></div>`; })()}
       <div class="card full"><h3>Gráfica de equilibrio</h3><div class="chartbox tall"><canvas id="ch_breakeven"></canvas></div></div>
       <div class="card full"><h3>Gastos fijos de operación (mensuales)</h3><div class="pad">${gf}</div></div>
     </div>`;
@@ -2244,10 +2480,10 @@ function buildPresupuestoCharts(R){
 function renderSection(id){
   destroyCharts();
   // A4: Costeo mensual y Facturas siempre se calculan con las tarifas del mes que muestran
-  const R=(id==="mes"||id==="facturas"||id==="integral"||id==="produccion"||id==="compras")?computeAt(periodoKey()):compute();
+  const R=(id==="mes"||id==="facturas"||id==="integral"||id==="produccion"||id==="compras"||id==="precios"||id==="variaciones")?computeAt(periodoKey()):compute();
   const map={dashboard:secDashboard,mes:secMes,presupuesto:secPresupuesto,resumen:secResumen,control:secControl,capacidad:secCapacidad,mano:secMano,
     indirectos:secIndirectos,energia:secEnergia,centros:secCentros,
-    ruta:secRuta,financiero:secControl,facturas:secFacturas,compras:secCompras,produccion:secProduccion,integral:secMes,placas:secDiseno,diagrama:secDiagrama,validacion:secValidacion};
+    ruta:secRuta,financiero:secControl,facturas:secFacturas,compras:secCompras,precios:secPrecios,variaciones:secVariaciones,produccion:secProduccion,integral:secMes,placas:secDiseno,diagrama:secDiagrama,validacion:secValidacion};
   const cont=document.getElementById("content");
   cont.className="content"+(puedeEditar()?"":" ro");
   cont.innerHTML=(map[id]||secDashboard)(R);
@@ -2334,13 +2570,14 @@ function buildWorkbook(){
     ["ESTADO DE RESULTADOS MENSUAL (MXN)"],
     ["Ventas netas mensuales", r2(P.ventas)],
     ["(-) Costo variable — material", r2(-P.matMes)],
+    ["(-) Otros costos variables (energía de proceso, consumibles, financ., garantías, comisión)", r2(-P.otrosVar)],
     ["= Margen de contribución", r2(P.contribMes)],
     ["   Margen de contribución %", r2(P.ratio*100)],
     ["(-) Gastos fijos de operación", r2(-P.GF)],
     ["= Utilidad (pérdida) de operación", P.utilOper==null?"— (captura volúmenes)":r2(P.utilOper)],
     [],
     ["GASTOS FIJOS DE OPERACIÓN (MXN/mes)"],
-    ["Manufactura (energía, MO directa, indirectos fabriles)", r2(P.gfManuf)],
+    ["Manufactura (MO directa, energía fija, indirectos fabriles fijos)", r2(P.gfManuf)],
     ["Administración (nómina + indirectos)", r2(P.gfAdmin)],
     ["Comercial (nómina + indirectos)", r2(P.gfComer)],
     ["Logística", r2(P.gfLog)],
@@ -2392,6 +2629,20 @@ function buildWorkbook(){
     i.markup==null?"":r2(i.markup*100), i.estado]);
   const wsI=XLSX.utils.aoa_to_sheet([H,...body]); wsI["!freeze"]={xSplit:1,ySplit:1};
   XLSX.utils.book_append_sheet(wb, wsI, "Costeo integral");
+  // D1/D2: precio mínimo y contribución
+  const pmH=["Inserto","Cliente","Min-persona/pza","Precio cliente MXN","Costo variable u.","Contribución u.","Contribución %","Contribución por hora",
+    "Precio piso (costo variable)","Precio de equilibrio (costo total)","Precio objetivo","Situación"];
+  const pmB=R.integral.map(i=>[i.ins.id,clienteLabel(i.ins),i.minPza==null?"":r2(i.minPza),r2(i.precioClMXN),r2(i.costoVar),r2(i.contribUnit),
+    i.precioClMXN>0?r2(i.contribUnit/i.precioClMXN*100):"",i.contribHora==null?"":r2(i.contribHora),
+    i.precioMin==null?"":r2(i.precioMin),i.precioEq==null?"":r2(i.precioEq),i.precioSug==null?"":r2(i.precioSug),situacionPrecio(i).t]);
+  const wsP=XLSX.utils.aoa_to_sheet([pmH,...pmB]); wsP["!freeze"]={xSplit:1,ySplit:1};
+  XLSX.utils.book_append_sheet(wb, wsP, "Precio minimo");
+  { const kv=periodoKey(); const V=computeVariaciones(kv);
+    if(V.ok){ const vr=[["VARIACIONES PLAN VS REAL — "+nombreMes(kv)],[],["Concepto","Importe MXN"],["Utilidad de operación planeada",r2(V.uoPlan)]];
+      V.puente.forEach(x=>vr.push([x.k,r2(x.v)])); vr.push(["Utilidad de operación real (estimada)",r2(V.uoReal)]);
+      vr.push([],["Inserto","Piezas plan","Piezas reales","Precio plan u.","Precio real u.","Contribución plan u.","Var. volumen y mezcla","Var. precio"]);
+      V.filas.forEach(x=>vr.push([x.id,x.qp,x.qr,r2(x.pp),x.pr==null?"":r2(x.pr),r2(x.cup),r2(x.vVolMez),r2(x.vPrecio)]));
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(vr), "Variaciones"); } }
 
   const CH=["Centro de costo","Tarifa MO $/h","Tarifa indirectos $/h","Tarifa TOTAL $/h"];
   const crows=R.centros.map(c=>[c.c, r2(c.moRate), r2(c.indRate), r2(c.total)]);
@@ -2554,7 +2805,7 @@ const app={
   abrirAcceso(){ NF.openAccount(); },
   setPeriodoVista(v){ S.periodoVista=v||"catalogo"; if(/^\d{4}-\d{2}$/.test(S.periodoVista)) S.periodoActivo=S.periodoVista; save(); renderKPIs(); renderChain(); renderSection(current); toast("Consultando "+etiquetaPeriodo(S.periodoVista)); },
   setPresuPeriodo(v){ S.periodoVista=v||"catalogo"; if(/^\d{4}-\d{2}$/.test(S.periodoVista)) S.periodoActivo=S.periodoVista; save(); renderKPIs(); renderChain(); renderSection("presupuesto"); },
-  setPeriodo(v){ if(!v) return; S.periodoActivo=v; S.periodoVista=v; ensurePeriodo(v); save(); renderKPIs(); renderChain(); renderSection((current==="facturas"||current==="produccion"||current==="compras")?current:"mes"); },
+  setPeriodo(v){ if(!v) return; S.periodoActivo=v; S.periodoVista=v; ensurePeriodo(v); save(); renderKPIs(); renderChain(); renderSection((current==="facturas"||current==="produccion"||current==="compras"||current==="precios"||current==="variaciones")?current:"mes"); },
   async subirFacturas(ev){
     const input=ev&&ev.target; const files=input&&input.files?[...input.files]:[]; if(!files.length) return;
     ensureFacturas(); const ya=new Set(S.facturas.map(f=>f.uuid)); let ok=0,okP=0,dup=0; const errs=[]; const meses={};
@@ -2768,6 +3019,7 @@ const app={
       tabla("Presupuesto y punto de equilibrio",["Concepto","Importe / valor"],[
         ["Ventas netas mensuales",P.conVol?fMXN(P.ventas):"—"],
         ["(−) Costo variable — material",P.conVol?"("+fMXN(P.matMes)+")":"—"],
+        ["(−) Otros costos variables",P.conVol?"("+fMXN(P.otrosVar)+")":"—"],
         ["= Margen de contribución",P.conVol?fMXN(P.contribMes)+"  ("+fPct(P.ratio)+")":"—"],
         ["(−) Gastos fijos de operación","("+fMXN(P.GF)+")"],
         ["= Utilidad (pérdida) de operación",P.utilOper==null?"—":fMXN(P.utilOper)],
