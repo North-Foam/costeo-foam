@@ -667,8 +667,8 @@ function secMano(R){
     <td class="mono val-calc" title="${e.esXML?'Percepciones reales del XML de nómina':(R.capturaNeto?('Neto '+fMXN(num(e.netoPer))+' + ISR '+fMXN(e.isrPer)+' + IMSS obrero '+fMXN(e.imssPer)):'Capturado como bruto')}">${e.brutoPer>0?fMXN(e.brutoPer):'—'}</td>
     <td class="mono val-calc">${fMXN0(e.bruto)}</td>
     <td class="mono val-calc">${fMXN0(e.costo)}</td>
-    <td class="mono val-calc">${e.tarifa==null?'—':fMXN(e.tarifa)+'/h'}</td>
-    <td><button class="del" data-click="delRow('empleados',${i})">✕</button></td></tr>`).join("");
+    <td class="mono val-calc">${e.tarifa==null?'—':fMXN(e.tarifa)}</td>
+    <td style="text-align:center"><button class="del" data-click="delRow('empleados',${i})">✕</button></td></tr>`).join("");
   return head("Mano de obra","MANO_OBRA",
     "Captura el sueldo neto semanal de cada puesto; la app calcula el bruto (sumando ISR y cuota obrera IMSS), aplica las cargas patronales y obtiene el costo empresa y la tarifa por hora (costo mensual ÷ horas productivas). Los % de ley son supuestos: confírmalos con tu contador.")
   +`<div class="filterbar">${periodoSelector()}<span class="hint">${escapeHtml(etiquetaPeriodo(S.periodoVista||"catalogo"))} — sueldos y número de personas por periodo; ${avisoPeriodo()}</span></div>
@@ -685,10 +685,10 @@ function secMano(R){
       <tr><td class="l">Labor comercial → costo integral</td><td class="mono val-calc">${fMXN(R.moComercial)}</td></tr>
     </table><div class="note" style="margin-top:12px">Factor de nómina del escenario aplicado: <b>${fN(R.factorNomina,2)}</b>.</div></div></div>
   </div>
-  <div class="card" style="margin-top:16px"><h3>Plantilla y costo empresa</h3><div class="body"><div class="scroll" style="border:0;box-shadow:none">
-    <table><thead><tr><th class="l">Puesto</th><th class="l">Tipo</th><th class="l">Centro</th><th class="l">Periodicidad</th>
+  <div class="card" style="margin-top:16px"><h3>Plantilla y costo empresa</h3><div class="body">
+    <table class="fija compact plantilla"><colgroup><col style="width:14%"><col style="width:12.5%"><col style="width:18%"><col style="width:9%"><col style="width:7%"><col style="width:4%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:3.5%"></colgroup><thead><tr><th class="l">Puesto</th><th class="l">Tipo</th><th class="l">Centro</th><th class="l">Periodicidad</th>
       <th>${R.capturaNeto?'Sueldo neto<br>(por periodo)':'Sueldo bruto<br>(por periodo)'}</th><th>N°</th><th>Bruto<br>por periodo</th><th>Bruto mensual<br>(todas las personas)</th><th>Costo empresa<br>mensual</th><th>Tarifa $/h</th><th></th></tr></thead>
-    <tbody>${erows}</tbody></table></div>
+    <tbody>${erows}</tbody></table>
     <button class="rowbtn" data-click="addEmp()">+ Agregar puesto</button>
     <div class="note" style="margin:8px 12px">${R.capturaNeto?'El sueldo se captura <b>neto</b> (lo que recibe el trabajador) por semana o por mes según la periodicidad. <b>Bruto por periodo</b> = neto + ISR retenido (con subsidio al empleo) + cuota obrera IMSS; pasa el cursor para ver el desglose. Bruto mensual = bruto semanal × semanas por mes × personas. Sobre el bruto se aplican las cargas patronales para el costo empresa, y la tarifa $/h = costo empresa ÷ horas productivas.':'El sueldo se captura <b>bruto</b>.'}</div></div></div>
   <div class="card" style="margin-top:16px"><h3>Del neto al bruto · retenciones del trabajador (2026)</h3><div class="pad"><table>
