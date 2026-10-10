@@ -20,8 +20,17 @@ const factura = z.object({
   uuid: z.string().regex(/^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/), fecha: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/),
   serie: text.optional(), folio: text.optional(), tipo: z.enum(['I','E']), moneda: z.string().regex(/^[A-Z]{3}$/), tc: num.optional(),
   emisorRfc: text.optional(), receptorRfc: text.optional(), receptor: text.optional(), subtotal: num, total: num,
-  cancelada: z.boolean().optional(), conceptos: z.array(concepto).max(500)
+  cancelada: z.boolean().optional(), metodo: text.optional(), conceptos: z.array(concepto).max(500)
 }).strict();
+const fechaR = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/);
+const uuidR = z.string().regex(/^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/);
+const compra = z.object({
+  uuid: uuidR, fecha: fechaR, serie: text.optional(), folio: text.optional(), tipo: z.enum(['I','E','N']), moneda: z.string().regex(/^[A-Z]{3}$/), tc: num.optional(),
+  emisorRfc: text.optional(), emisor: text.optional(), receptorRfc: text.optional(), receptor: text.optional(), subtotal: num, total: num, metodo: text.optional(),
+  cancelada: z.boolean().optional(), conceptos: z.array(concepto).max(500),
+  nomina: z.object({ fechaPago: fechaR, percepciones: num, deducciones: num }).strict().optional()
+}).strict();
+const pago = z.object({ uuid: uuidR, fecha: fechaR, receptorRfc: text.optional(), docs: z.array(z.object({ id: uuidR, imp: num, f: fechaR }).strict()).max(500) }).strict();
 const registro = z.object({
   id: z.string().regex(/^[a-z0-9]{4,24}$/), fecha: z.string().regex(/^(\d{4}-(0[1-9]|1[0-2])-\d{2})?$/), ins: id,
   pzas: num.optional(), rech: num.optional(), prep: num.optional(), min: num.optional(), nop: num.optional(), nota: text.nullable().optional()
@@ -40,7 +49,8 @@ const schema = z.object({
   presupuesto:z.object({otrosFijos:num,meta:num,periodo:z.string().regex(/^(catalogo|anio:\d{4}|\d{4}-(0[1-9]|1[0-2]))$/).optional()}).strict(),
   periodos:z.record(z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),period),
   periodoActivo:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).nullable(), periodoVista:z.string().regex(/^(catalogo|anio:\d{4}|\d{4}-(0[1-9]|1[0-2]))$/),
-  facturas:z.array(factura).max(3000).optional(), produccion:z.array(registro).max(10000).optional(), facturaMap:z.record(key,id).optional(),
+  facturas:z.array(factura).max(3000).optional(), compras:z.array(compra).max(4000).optional(), pagos:z.array(pago).max(3000).optional(),
+  compraMap:z.record(key, z.object({ t: z.enum(['mat','gasto','energia','nomina','ign']), v: text.optional() }).strict()).optional(), produccion:z.array(registro).max(10000).optional(), facturaMap:z.record(key,id).optional(),
   clientes:z.array(text).max(2000), ruta:z.array(z.object({ ins:id, proc:text, ce:text, ...numbers(['op','prep','lote','minMO','minMaq','nop','retrab','merma']) }).strict()).max(10000)
 }).strict();
 export function validateState(value) {
