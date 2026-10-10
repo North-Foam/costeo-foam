@@ -1504,20 +1504,29 @@ function computeVariaciones(k){
   const cuProm=Qp>0?CPp/Qp:0;
   const vVol=Qp>0?(Qr-Qp)*cuProm:CRp, vMez=Qp>0?CRp-Qr*cuProm:0;
   const vPrecio=filas.reduce((a,x)=>a+x.vPrecio,0);
-  // Material: compras reales de foam vs. consumo estándar de lo producido (o facturado si no hay registro de producción)
-  const V=realMes(k); const stdPl={}, stdUSD={};
+  // Material según lo PRODUCIDO (no lo comprado): el sobrante de compras pasa al mes siguiente como inventario.
+  // Placas estándar = piezas buenas × placas por pieza (con merma); placas consumidas = (buenas + rechazadas) × lo mismo.
+  // Precio real = promedio ponderado de las compras de foam de los últimos 3 meses (hasta este mes).
+  const conProd=X.regs.length>0; const stdPl={}, conPl={}, stdUSD={};
   Rp.integral.forEach(it=>{
     const id=String(it.ins.id); const g=X.porIns[id]; const qf=(F.porIns[id]||{}).q||0;
-    const q=(g&&g.pzas>0)?g.pzas:qf; if(!(q>0)) return;
+    const qBuenas=conProd?(g?g.pzas:0):qf, qRech=conProd&&g?g.rech:0; if(!(qBuenas+qRech>0)) return;
     const dz=disenoCalc(it.ins); if(!dz) return; const merma=num(it.mermaMat);
     dz.piezas.forEach(p=>{ const M=dz.mats[(num(p.mat)||1)-1]||matEff({}); const nom=M.nombre||""; if(!(p.ppp>0)) return;
-      stdPl[nom]=(stdPl[nom]||0)+num(p.cant)/p.ppp*q*(1+merma); if(stdUSD[nom]==null) stdUSD[nom]=num(M.precio); });
+      const porPza=num(p.cant)/p.ppp*(1+merma);
+      stdPl[nom]=(stdPl[nom]||0)+porPza*qBuenas; conPl[nom]=(conPl[nom]||0)+porPza*(qBuenas+qRech);
+      if(stdUSD[nom]==null) stdUSD[nom]=num(M.precio); });
   });
-  const mats=Object.keys(V.mat).sort().map(nom=>{
-    const g=V.mat[nom]; const pUSD=stdUSD[nom]!=null?stdUSD[nom]:num((catFind(nom)||{}).costo); const pStd=pUSD*Rp.tc; const plStd=stdPl[nom]||0;
-    return {nom,placas:g.placas,mxn:g.mxn,pStd,pReal:g.placas>0?g.mxn/g.placas:null,plStd,vP:pStd*g.placas-g.mxn,vU:(plStd-g.placas)*pStd};
+  const mesesCompra=[0,1,2].map(n=>{ const [y,m]=k.split("-").map(Number); const d=new Date(y,m-1-n,1); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"); });
+  const comp={}; mesesCompra.forEach(mk=>{ const Vm=realMes(mk); Object.keys(Vm.mat).forEach(nom=>{ const g=Vm.mat[nom]; const c=comp[nom]||(comp[nom]={placas:0,mxn:0}); c.placas+=g.placas; c.mxn+=g.mxn; }); });
+  const mats=Object.keys(conPl).sort().filter(nom=>conPl[nom]>0).map(nom=>{
+    const pUSD=stdUSD[nom]!=null?stdUSD[nom]:num((catFind(nom)||{}).costo); const pStd=pUSD*Rp.tc;
+    const c=comp[nom]; const pReal=(c&&c.placas>0)?c.mxn/c.placas:null; const pUso=pReal==null?pStd:pReal;
+    const plStd=stdPl[nom]||0, plCon=conPl[nom];
+    return {nom,plStd,plCon,pStd,pReal,vP:(pStd-pUso)*plCon,vU:(plStd-plCon)*pStd};
   });
   const vMatP=mats.reduce((a,m)=>a+m.vP,0), vMatU=mats.reduce((a,m)=>a+m.vU,0);
+  const conPrecioReal=mats.some(m=>m.pReal!=null);
   // Gastos del mes: fijos + variables de planta (energía de proceso y consumibles), plan vs. real
   const Pr=computePresupuesto(Rr,k);
   const gPlan=Mp.fijos+Rp.gastoPlantaVar, gReal=Pr.GF+Rr.gastoPlantaVar;
@@ -1527,13 +1536,13 @@ function computeVariaciones(k){
     {k:"Volumen de ventas",v:vVol,d:"más o menos piezas que el plan, a la contribución promedio planeada"},
     {k:"Mezcla de productos",v:vMez,d:"se vendieron insertos con más o menos contribución que la mezcla planeada"},
     {k:"Precio de venta y tipo de cambio",v:vPrecio,d:"precio real facturado contra precio del catálogo (neto de comisión)"},
-    {k:"Precio del foam",v:vMatP,d:mats.length?"precio real de las placas compradas contra el precio estándar":"sin compras de foam clasificadas en el mes"},
-    {k:"Consumo de foam",v:vMatU,d:mats.length?"placas compradas contra placas estándar de lo producido (incluye cambios de inventario)":"sin compras de foam clasificadas en el mes"},
+    {k:"Precio del foam",v:vMatP,d:conPrecioReal?"placas consumidas en la producción × (precio estándar − precio real de compra)":"sin compras de foam clasificadas en los últimos 3 meses: se toma el precio estándar"},
+    {k:"Consumo de foam (rechazos)",v:vMatU,d:conProd?"material de las piezas rechazadas del registro de producción":"sin registro de producción: se toman las piezas facturadas sin rechazos"},
     {k:"Gastos del mes",v:vGastos,d:"gastos reales (XML) contra los capturados o del catálogo"}
   ];
   const uoReal=uoPlan+puente.reduce((a,x)=>a+x.v,0);
   const tarMO=Rr.horasDirectas>0?Rr.moDirecta/Rr.horasDirectas:0;
-  return {k,ok:F.n>0,Rp,Rr,Mp,F,X,filas,Qp,Qr,cuProm,mats,uoPlan,uoReal,puente,gPlan,gReal,
+  return {k,ok:F.n>0,Rp,Rr,Mp,F,X,filas,Qp,Qr,cuProm,mats,conProd,conPrecioReal,mesesCompra,uoPlan,uoReal,puente,gPlan,gReal,
           sinXmlGastos:!realMes(k).docs,
           mo:X.regs.length?{hStd:X.hStdProd,hReal:X.hReal,tar:tarMO,v:(X.hStdProd-X.hReal)*tarMO}:null};
 }
@@ -1552,7 +1561,7 @@ function secVariaciones(R){
       <td class="mono">${fN(x.qp,0)}</td><td class="mono" style="font-weight:700">${fN(x.qr,0)}</td>
       <td class="mono val-calc">${fMXN(x.pp)}</td><td class="mono val-calc">${x.pr==null?'—':fMXN(x.pr)}</td><td class="mono val-calc">${fMXN(x.cup)}</td>
       <td class="mono" ${col(x.vVolMez)}>${sg(x.vVolMez)}</td><td class="mono" ${col(x.vPrecio)}>${sg(x.vPrecio)}</td></tr>`).join("");
-  const mRows=V.mats.map(m=>`<tr><td class="l">${escapeHtml(m.nom)}</td><td class="mono val-calc">${fN(m.placas,0)}</td><td class="mono val-calc">${fN(m.plStd,1)}</td>
+  const mRows=V.mats.map(m=>`<tr><td class="l">${escapeHtml(m.nom)}</td><td class="mono val-calc">${fN(m.plStd,1)}</td><td class="mono val-calc">${fN(m.plCon,1)}</td>
       <td class="mono val-calc">${fMXN(m.pStd)}</td><td class="mono val-calc">${m.pReal==null?'—':fMXN(m.pReal)}</td>
       <td class="mono" ${col(m.vP)}>${sg(m.vP)}</td><td class="mono" ${col(m.vU)}>${sg(m.vU)}</td></tr>`).join("");
   return head("Variaciones del mes","PLAN VS. REAL",lead)+sel
@@ -1570,17 +1579,18 @@ function secVariaciones(R){
       </table></div></div>
       <div class="card"><h3>Lectura</h3><div class="pad"><div class="note" style="border:0;background:none;padding:0">
         ${V.F.sinAsignar.length?`<b>${V.F.sinAsignar.length} concepto(s) facturado(s) sin inserto</b> por ${fMXN(V.F.sinMXN)} no entran al cálculo: asígnalos en Facturas de venta.<br><br>`:''}
-        ${V.mats.length?'':'Sin compras de foam clasificadas este mes: el material se toma al costo estándar. Sube los XML en <b>Compras, gastos y nómina</b> para medir precio y consumo reales.<br><br>'}
+        ${V.conProd?'':'Sin registro de producción en el mes: el material se calcula con las piezas facturadas. Captura la producción para medir rechazos y consumo real.<br><br>'}
+        ${V.conPrecioReal?'':'Sin compras de foam clasificadas en los últimos 3 meses: el material se toma al precio estándar. Sube los XML en <b>Compras, gastos y nómina</b> para medir el precio real.<br><br>'}
         ${V.sinXmlGastos?'Sin XML de gastos este mes: los gastos reales se toman igual a los capturados, por eso su variación sale en cero.<br><br>':''}
         Gastos del mes: plan ${fMXN(V.gPlan)} · real ${fMXN(V.gReal)} (fijos más energía de proceso y consumibles).<br><br>
-        La utilidad real es una estimación de gestión antes de impuestos: el material se mide con las compras del mes, así que una compra grande para inventario aparece como consumo mayor.</div></div></div>
+        El foam se cuesta con lo que se <b>produce</b>, no con lo que se compra: el material comprado y no usado queda como inventario para el mes siguiente. Utilidad estimada antes de impuestos.</div></div></div>
     </div>
     <div class="sechead" style="margin-top:18px"><h2 style="font-size:17px">Por inserto</h2><span class="src">volumen, mezcla y precio</span></div>
     <div class="tabla-integral" style="margin-top:8px"><table class="compact"><thead><tr><th class="l">Inserto</th><th class="l">Cliente</th><th>Piezas<br>plan</th><th>Piezas<br>reales</th>
       <th>Precio<br>plan u.</th><th>Precio<br>real u.</th><th>Contribución<br>plan u.</th><th>Var. volumen<br>y mezcla</th><th>Var.<br>precio</th></tr></thead><tbody>${fRows}</tbody></table></div>
-    ${V.mats.length?`<div class="sechead" style="margin-top:18px"><h2 style="font-size:17px">Foam: precio y consumo</h2><span class="src">compras del mes vs. estándar</span></div>
-    <div class="tabla-integral" style="margin-top:8px"><table class="compact"><thead><tr><th class="l">Material</th><th>Placas<br>compradas</th><th>Placas<br>estándar</th><th>Precio<br>estándar</th><th>Precio<br>real</th><th>Var.<br>precio</th><th>Var.<br>consumo</th></tr></thead><tbody>${mRows}</tbody></table></div>
-    <div class="note" style="margin-top:6px">Placas estándar = piezas producidas (registro de producción; si no hay, piezas facturadas) × placas por pieza del Costeo de placas, con su % de merma.</div>`:''}
+    ${V.mats.length?`<div class="sechead" style="margin-top:18px"><h2 style="font-size:17px">Foam: precio y consumo</h2><span class="src">según lo producido en el mes</span></div>
+    <div class="tabla-integral" style="margin-top:8px"><table class="compact"><thead><tr><th class="l">Material</th><th>Placas<br>estándar</th><th>Placas<br>consumidas</th><th>Precio<br>estándar</th><th>Precio real<br>de compra</th><th>Var.<br>precio</th><th>Var.<br>consumo</th></tr></thead><tbody>${mRows}</tbody></table></div>
+    <div class="note" style="margin-top:6px">Placas estándar = piezas buenas producidas × placas por pieza del Costeo de placas (con su % de merma). Placas consumidas = lo mismo con piezas buenas + rechazadas. Precio real = promedio ponderado de las compras de ${nombreMes(V.mesesCompra[2])} a ${nombreMes(V.mesesCompra[0])}${V.conProd?'':'. Sin registro de producción se usan las piezas facturadas'}.</div>`:''}
     ${V.mo?`<div class="card" style="margin-top:16px"><h3>Mano de obra (informativo)</h3><div class="pad"><table class="fija">
       <tr><td class="l" style="width:62%">Horas-persona estándar de lo producido</td><td class="mono val-calc">${fN(V.mo.hStd,1)} h</td></tr>
       <tr><td class="l">Horas-persona reales registradas</td><td class="mono val-calc">${fN(V.mo.hReal,1)} h</td></tr>
