@@ -38,7 +38,7 @@ const registro = z.object({
 const schema = z.object({
   control: z.object({ escenario: z.enum(['Base','Conservador','Estrés']), tcBase: num, margenObj: num, vigenciaMeses: num, tcFecha: text.nullable(), tcAuto: z.boolean(), tcSerie: z.enum(['fix','pagos']) }).strict(),
   escenarios: z.object(Object.fromEntries(Object.keys(defaults.escenarios).map(k => [k, z.object({Base:num, Conservador:num, 'Estrés':num}).strict()]))).strict(),
-  capacidad: z.object(numbers(Object.keys(defaults.capacidad))).strict(), moParams: z.object(numbers(Object.keys(defaults.moParams))).strict(),
+  capacidad: z.object(numbers(Object.keys(defaults.capacidad))).strict(), moParams: z.object({ ...numbers(Object.keys(defaults.moParams)), ...numbers(['smDiario','umaDiaria','subsidioMes','subsidioTope']), capturaNeto: z.boolean().optional() }).strict(),
   empleados: z.array(z.object({ puesto:text, tipo:text, centro:text, period:text, ...numbers(['sueldo','n','uniformes','capacitacion','ausent']) }).strict()).max(2000),
   maquinaria: z.array(z.object({nombre:text.optional(),centro:text.optional(), ...numbers(['vida','adquisicion','residual','mantenimiento','refacciones','seguro'])}).strict()).max(2000),
   indirectos: z.array(z.object({ c:text, cl:text, ce:text, m:num }).strict()).max(2000),
