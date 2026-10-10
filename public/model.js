@@ -130,13 +130,20 @@ function compute(){
   R.provAgui=num(p.aguinaldoDias)/365; R.provVac=(num(p.vacDias)*num(p.primaVac))/365;
   R.cargaTotal=num(p.isn)+num(p.infonavit)+num(p.imss)+R.provAgui+R.provVac+num(p.otros);
   R.factorEmpresa=1+R.cargaTotal; R.factorNomina=f("nomina");
+  // Sueldos capturados NETOS: se convierten a bruto (ISR con subsidio + cuota obrera IMSS) antes de las cargas patronales
+  R.capturaNeto=p.capturaNeto!==false; R.factorInt=factorIntegracion(p);
+  const mkV=String(S.periodoVista||"");
   R.emp=S.empleados.map((e,ei)=>{
     const sv=valPeriodo("mano","e"+ei+".sueldo",e.sueldo), nv=valPeriodo("mano","e"+ei+".n",e.n);
-    const bruto=(e.period==="Semanal"?num(sv)*num(p.semanas):num(sv))*num(nv);
+    const dias=e.period==="Semanal"?7:30.4;
+    const esXML=/^\d{4}-\d{2}$/.test(mkV)&&realValor("mano","e"+ei+".sueldo",mkV)!=null; // el XML ya trae percepciones brutas
+    const g=(R.capturaNeto&&!esXML&&num(sv)>0)?brutoDesdeNeto(num(sv),dias,p):{bruto:num(sv),isr:0,imss:0};
+    const brutoPer=g.bruto, netoPer=R.capturaNeto&&!esXML?num(sv):null;
+    const bruto=(e.period==="Semanal"?brutoPer*num(p.semanas):brutoPer)*num(nv);
     const costo=(bruto*R.factorEmpresa+num(e.uniformes)+num(e.capacitacion))*R.factorNomina;
     const aus=(e.ausent!=null&&e.ausent!==""&&num(e.ausent)>0)?num(e.ausent):R.ausentGeneral;
     const horas=R.horasPersona*(1-aus)*num(nv);
-    return {...e,bruto,costo,horas,tarifa:horas>0?costo/horas:null};
+    return {...e,brutoPer,netoPer,isrPer:g.isr,imssPer:g.imss,esXML,bruto,costo,horas,tarifa:horas>0?costo/horas:null};
   });
   R.moDirecta=R.emp.filter(e=>e.tipo==="Directa").reduce((a,e)=>a+e.costo,0);
   R.moAdmin=R.emp.filter(e=>e.tipo==="Administrativa").reduce((a,e)=>a+e.costo,0);
@@ -304,6 +311,29 @@ function compute(){
   return R;
 }
 function isNum(x){return x!==null&&x!==""&&isFinite(parseFloat(x));}
+/* ---------- Neto → bruto (retenciones del trabajador, 2026) ---------- */
+// Tarifa mensual ISR 2026 (Anexo 8 RMF 2026): [límite inferior, cuota fija, % sobre excedente]
+function ISR_MENSUAL_2026(){ return [[0.01,0,0.0192],[844.60,16.22,0.064],[7168.52,420.95,0.1088],[12598.03,1011.68,0.16],[14644.65,1339.14,0.1792],
+  [17533.65,1856.84,0.2136],[35362.84,5665.16,0.2352],[55736.69,10457.09,0.30],[106410.51,25659.23,0.32],[141880.67,37009.69,0.34],[425642.00,133488.54,0.35]]; }
+function NOM_DEF(){ return {smDiario:440.87,umaDiaria:117.31,subsidioMes:536.22,subsidioTope:11492.66}; }
+function nomParam(p,k){ const v=p&&p[k]; return (v==null||v==="")?NOM_DEF()[k]:num(v); }
+function factorIntegracion(p){ return 1+(num(p.aguinaldoDias)+num(p.vacDias)*num(p.primaVac))/365; }
+function isrMensual(M){ const T=ISR_MENSUAL_2026(); let r=T[0]; for(const x of T){ if(M>=x[0]) r=x; } return M<=0?0:r[1]+(M-r[0])*r[2]; }
+function retencionesPeriodo(B,dias,p){
+  const sd=B/dias; if(sd<=nomParam(p,"smDiario")+1e-9) return {isr:0,imss:0}; // salario mínimo: sin ISR y la cuota obrera la paga el patrón
+  const M=B*30.4/dias; let isrM=isrMensual(M); if(M<=nomParam(p,"subsidioTope")) isrM=Math.max(0,isrM-nomParam(p,"subsidioMes"));
+  const uma=nomParam(p,"umaDiaria"); const sbc=Math.min(sd*factorIntegracion(p),25*uma);
+  const imssDia=sbc*0.02375+Math.max(0,sbc-3*uma)*0.004; // cuota obrera: 0.25+0.375+0.625+1.125% y 0.40% excedente de 3 UMA
+  return {isr:isrM*dias/30.4,imss:imssDia*dias};
+}
+function brutoDesdeNeto(neto,dias,p){
+  if(!(neto>0)) return {bruto:0,isr:0,imss:0};
+  if(neto/dias<=nomParam(p,"smDiario")) return {bruto:neto,isr:0,imss:0};
+  let lo=neto, hi=neto*2; const netoDe=B=>{ const r=retencionesPeriodo(B,dias,p); return B-r.isr-r.imss; };
+  while(netoDe(hi)<neto) hi*=1.5;
+  for(let i=0;i<60;i++){ const mid=(lo+hi)/2; if(netoDe(mid)<neto) lo=mid; else hi=mid; }
+  const r=retencionesPeriodo(hi,dias,p); return {bruto:hi,isr:r.isr,imss:r.imss};
+}
 // D2: una carga eléctrica es variable (de proceso) si así se marcó; si no se ha marcado, se infiere por su nombre
 function cargaVariable(c){ if(c&&c.v!=null) return !!c.v; return /m[aá]quina|corte|sierra|compresor|hilo|pegad|router|cnc|prensa|suaj|laminad|termo/i.test(String((c&&c.n)||"")); }
 function estadoCorto(s){return s==="COSTEO INCOMPLETO"?"Incompleto":s;}
@@ -634,12 +664,13 @@ function secMano(R){
     <td class="l">${sel(`empleados.${i}.period`,PERIOD)}</td>
     <td>${perInput("mano","e"+i+".sueldo",`empleados.${i}.sueldo`,{ph:"—"})}</td>
     <td>${perInput("mano","e"+i+".n",`empleados.${i}.n`,{dec:0})}</td>
+    <td class="mono val-calc" title="${e.esXML?'Percepciones reales del XML de nómina':(R.capturaNeto?('Neto '+fMXN(num(e.netoPer))+' + ISR '+fMXN(e.isrPer)+' + IMSS obrero '+fMXN(e.imssPer)):'Capturado como bruto')}">${e.brutoPer>0?fMXN(e.brutoPer):'—'}</td>
     <td class="mono val-calc">${fMXN0(e.bruto)}</td>
     <td class="mono val-calc">${fMXN0(e.costo)}</td>
     <td class="mono val-calc">${e.tarifa==null?'—':fMXN(e.tarifa)+'/h'}</td>
     <td><button class="del" data-click="delRow('empleados',${i})">✕</button></td></tr>`).join("");
   return head("Mano de obra","MANO_OBRA",
-    "Sustituye el factor 1.35 por cargas patronales explícitas. El costo-empresa por hora = costo mensual ÷ horas productivas. Los % de ley son supuestos: confírmalos con tu contador.")
+    "Captura el sueldo neto semanal de cada puesto; la app calcula el bruto (sumando ISR y cuota obrera IMSS), aplica las cargas patronales y obtiene el costo empresa y la tarifa por hora (costo mensual ÷ horas productivas). Los % de ley son supuestos: confírmalos con tu contador.")
   +`<div class="filterbar">${periodoSelector()}<span class="hint">${escapeHtml(etiquetaPeriodo(S.periodoVista||"catalogo"))} — sueldos y número de personas por periodo; ${avisoPeriodo()}</span></div>
     <div class="grid2">
     <div class="card"><h3>Cargas patronales</h3><div class="pad"><table>${prows}
@@ -656,9 +687,18 @@ function secMano(R){
   </div>
   <div class="card" style="margin-top:16px"><h3>Plantilla y costo empresa</h3><div class="body"><div class="scroll" style="border:0;box-shadow:none">
     <table><thead><tr><th class="l">Puesto</th><th class="l">Tipo</th><th class="l">Centro</th><th class="l">Periodicidad</th>
-      <th>Sueldo bruto</th><th>N°</th><th>Bruto mensual</th><th>Costo empresa</th><th>Tarifa $/h</th><th></th></tr></thead>
+      <th>${R.capturaNeto?'Sueldo neto<br>(por periodo)':'Sueldo bruto<br>(por periodo)'}</th><th>N°</th><th>Bruto<br>por periodo</th><th>Bruto mensual<br>(todas las personas)</th><th>Costo empresa<br>mensual</th><th>Tarifa $/h</th><th></th></tr></thead>
     <tbody>${erows}</tbody></table></div>
-    <button class="rowbtn" data-click="addEmp()">+ Agregar puesto</button></div></div>`;
+    <button class="rowbtn" data-click="addEmp()">+ Agregar puesto</button>
+    <div class="note" style="margin:8px 12px">${R.capturaNeto?'El sueldo se captura <b>neto</b> (lo que recibe el trabajador) por semana o por mes según la periodicidad. <b>Bruto por periodo</b> = neto + ISR retenido (con subsidio al empleo) + cuota obrera IMSS; pasa el cursor para ver el desglose. Bruto mensual = bruto semanal × semanas por mes × personas. Sobre el bruto se aplican las cargas patronales para el costo empresa, y la tarifa $/h = costo empresa ÷ horas productivas.':'El sueldo se captura <b>bruto</b>.'}</div></div></div>
+  <div class="card" style="margin-top:16px"><h3>Del neto al bruto · retenciones del trabajador (2026)</h3><div class="pad"><table>
+    <tr><td class="l">Los sueldos se capturan netos</td><td><input type="checkbox" data-path="moParams.capturaNeto" data-type="chk" ${R.capturaNeto?'checked':''}></td></tr>
+    <tr><td class="l">Salario mínimo diario <span class="hint">(Zona Libre de la Frontera Norte)</span></td><td>${inp("moParams.smDiario")}</td></tr>
+    <tr><td class="l">UMA diaria</td><td>${inp("moParams.umaDiaria")}</td></tr>
+    <tr><td class="l">Subsidio al empleo mensual</td><td>${inp("moParams.subsidioMes")}</td></tr>
+    <tr><td class="l">Tope de ingreso mensual para subsidio</td><td>${inp("moParams.subsidioTope")}</td></tr>
+    <tr class="sub"><td class="l">Factor de integración (SBC)</td><td class="mono">${fN(R.factorInt,4)}</td></tr>
+  </table><div class="note" style="margin-top:10px">ISR con la tarifa mensual 2026 (Anexo 8 de la RMF) proporcional a los días del periodo; el subsidio sólo reduce el ISR. Cuota obrera IMSS = 2.375% del salario base de cotización más 0.40% sobre lo que exceda 3 UMA. Quien gana el salario mínimo no tiene retenciones (la cuota obrera la paga el patrón). Cuando hay XML de nómina del mes se usan sus percepciones reales. Confirma los parámetros con tu contador cada año.</div></div></div>`;
 }
 
 
@@ -824,6 +864,7 @@ function clienteDe(ins){ return (ins&&ins.cliente)?String(ins.cliente).trim():""
 function clienteLabel(ins){ return clienteDe(ins)||"Sin cliente"; }
 function ensureClientes(){
   ensureFacturas(); ensureProduccion(); ensureCompras();
+  if(S.moParams){ const d=NOM_DEF(); Object.keys(d).forEach(k=>{ if(S.moParams[k]==null) S.moParams[k]=d[k]; }); if(S.moParams.capturaNeto==null) S.moParams.capturaNeto=true; }
   if(!Array.isArray(S.clientes)) S.clientes=[];
   // normalizar material de pieza guardado como texto ("1","2","3") a número
   (S.inserts||[]).forEach(i=>{ const pz=i&&i.diseno&&i.diseno.piezas; if(Array.isArray(pz)) pz.forEach(p=>{ if(p&&typeof p.mat==="string"){ const n=Number(p.mat); p.mat=(Number.isFinite(n)&&n>=1&&n<=3)?n:1; } }); });
@@ -1841,7 +1882,7 @@ function secCompras(R){
   // Nómina real por puesto
   const nRows=Object.keys(V.nomina).map(i=>{ const e=S.empleados[+i]; if(!e) return ''; const g=V.nomina[i]; const eq=realValor("mano","e"+i+".sueldo",k);
     return `<tr><td class="l">${escapeHtml(e.puesto||'')}</td><td class="l">${escapeHtml(e.tipo||'')}</td><td class="mono">${g.recibos}</td><td class="mono val-calc">${fMXN(g.bruto)}</td>
-      <td class="mono val-calc">${e.sueldo==null?'—':fMXN(num(e.sueldo))} <span class="hint">${escapeHtml(e.period||'')}</span></td><td class="mono val-calc" style="font-weight:700">${eq==null?'—':fMXN(eq)}</td></tr>`; }).join("");
+      <td class="mono val-calc" title="${S.moParams.capturaNeto!==false?'Bruto calculado a partir del neto capturado ('+fMXN(num(e.sueldo))+')':'Capturado como bruto'}">${e.sueldo==null?'—':fMXN(S.moParams.capturaNeto!==false?brutoDesdeNeto(num(e.sueldo),e.period==="Semanal"?7:30.4,S.moParams).bruto:num(e.sueldo))} <span class="hint">${escapeHtml(e.period||'')}</span></td><td class="mono val-calc" style="font-weight:700">${eq==null?'—':fMXN(eq)}</td></tr>`; }).join("");
   const fRows=lista.slice().sort((a,b)=>String(b.fecha).localeCompare(String(a.fecha))).map(fa=>{
     const tc=(fa.moneda==="MXN"||fa.moneda==="XXX")?1:(num(fa.tc)||R.tc); const sub=(fa.tipo==="N"?num(fa.nomina&&fa.nomina.percepciones):num(fa.subtotal))*(fa.tipo==="E"?-1:1)*tc;
     return `<tr${fa.cancelada?' style="opacity:.5"':''}><td class="l mono">${escapeHtml(fa.fecha)}</td>
@@ -1874,7 +1915,7 @@ function secCompras(R){
     ${mRows?`<div class="tabla-integral" style="margin-top:8px"><table class="compact"><thead><tr><th class="l">Material</th><th>Placas<br>compradas</th><th>Importe<br>MXN</th><th>Precio real<br>USD/placa</th><th>Precio<br>catálogo</th><th>Variación</th><th>Placas<br>teóricas plan</th><th>Diferencia</th><th></th></tr></thead><tbody>${mRows}</tbody></table></div>
     <div class="note" style="margin-top:6px">La cantidad del concepto se toma como número de placas. <b>Diferencia</b> positiva = se compró más de lo que pide el plan (desperdicio real mayor al teórico o inventario). <b>Actualizar catálogo</b> pone el precio real promedio como nuevo costo de la placa (los meses cerrados no cambian).</div>`:`<div class="note">Aún no hay compras de foam clasificadas en ${nombreMes(k)}.</div>`}
     <div class="sechead" style="margin-top:18px"><h2 style="font-size:17px">Nómina real por puesto</h2><span class="src">${nombreMes(k)}</span></div>
-    ${nRows?`<div class="tabla-integral" style="margin-top:8px"><table class="compact"><thead><tr><th class="l">Puesto</th><th class="l">Tipo</th><th>Recibos</th><th>Percepciones<br>del mes</th><th>Sueldo<br>capturado</th><th>Sueldo real<br>equivalente</th></tr></thead><tbody>${nRows}</tbody></table></div>
+    ${nRows?`<div class="tabla-integral" style="margin-top:8px"><table class="compact"><thead><tr><th class="l">Puesto</th><th class="l">Tipo</th><th>Recibos</th><th>Percepciones<br>del mes</th><th>Sueldo bruto<br>capturado</th><th>Sueldo real<br>equivalente</th></tr></thead><tbody>${nRows}</tbody></table></div>
     <div class="note" style="margin-top:6px">Sueldo real equivalente = percepciones del mes ÷ personas del puesto (÷ semanas por mes si es semanal). Sustituye el sueldo del mes en Mano de obra; las cargas patronales se siguen calculando con tus porcentajes.</div>`:`<div class="note">Aún no hay recibos de nómina asignados en ${nombreMes(k)}.</div>`}
     <div class="sechead" style="margin-top:18px"><h2 style="font-size:17px">XML de ${nombreMes(k)}</h2><span class="src">${lista.length} archivo(s)</span></div>
     ${lista.length?`<div class="tabla-integral" style="margin-top:8px"><table class="compact"><thead><tr><th class="l">Fecha</th><th class="l">Proveedor / empleado</th><th>Moneda</th><th>Subtotal MXN</th><th>Conceptos</th><th class="l">Estado</th><th></th></tr></thead><tbody>${fRows}</tbody></table></div>`:`<div class="note">Aún no hay XML de este mes.</div>`}`;
