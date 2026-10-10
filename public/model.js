@@ -408,17 +408,18 @@ const SECTIONS=[
   {id:"resumen",ix:"03",name:"Resumen"},
   {id:"control",ix:"04",name:"Parámetros y costo financiero"},
   {id:"facturas",ix:"05",name:"Facturas de venta"},
-  {id:"capacidad",ix:"06",name:"Capacidad"},
-  {id:"mano",ix:"07",name:"Mano de obra"},
-  {id:"indirectos",ix:"08",name:"Indirectos"},
-  {id:"energia",ix:"09",name:"Energía y pool"},
-  {id:"centros",ix:"10",name:"Centros de costo"},
-  {id:"ruta",ix:"11",name:"Ruta de proceso"},
-  {id:"produccion",ix:"12",name:"Producción y carga"},
-  {id:"mes",ix:"13",name:"Costeo mensual"},
-  {id:"placas",ix:"14",name:"Costeo de placas"},
-  {id:"diagrama",ix:"15",name:"Diagrama de corte"},
-  {id:"validacion",ix:"16",name:"Validación"}
+  {id:"compras",ix:"06",name:"Compras, gastos y nómina"},
+  {id:"capacidad",ix:"07",name:"Capacidad"},
+  {id:"mano",ix:"08",name:"Mano de obra"},
+  {id:"indirectos",ix:"09",name:"Indirectos"},
+  {id:"energia",ix:"10",name:"Energía y pool"},
+  {id:"centros",ix:"11",name:"Centros de costo"},
+  {id:"ruta",ix:"12",name:"Ruta de proceso"},
+  {id:"produccion",ix:"13",name:"Producción y carga"},
+  {id:"mes",ix:"14",name:"Costeo mensual"},
+  {id:"placas",ix:"15",name:"Costeo de placas"},
+  {id:"diagrama",ix:"16",name:"Diagrama de corte"},
+  {id:"validacion",ix:"17",name:"Validación"}
 ];
 let current="dashboard";
 
@@ -550,7 +551,7 @@ function secControl(R){
           <option value="false" ${!S.financiero.activar?'selected':''}>No</option>
         </select></td></tr>
       <tr><td class="l">Días de inventario</td><td>${inp("financiero.diasInv")}</td></tr>
-      <tr><td class="l">Días de crédito al cliente</td><td>${inp("financiero.diasCliente")}</td></tr>
+      <tr><td class="l">Días de crédito al cliente${(function(){ const C=computeCobranza(R); return C.dias==null?'':` <span class="hint">(real según complementos: ${fN(C.dias,0)} días)</span>`; })()}</td><td>${inp("financiero.diasCliente")}</td></tr>
       <tr><td class="l">Días de crédito del proveedor</td><td>${inp("financiero.diasProveedor")}</td></tr>
       <tr><td class="l">Tasa anual de financiamiento</td><td>${inp("financiero.tasaAnual",{pct:true})}<span class="unit">%</span></td></tr>
       <tr><td class="l">Comisión bancaria (s/venta)</td><td>${inp("financiero.comision",{pct:true})}<span class="unit">%</span></td></tr>
@@ -644,6 +645,7 @@ function indMontoInput(i,it){
   const k=S.periodoVista||"catalogo"; const v=montoIndirecto(it,k);
   if(!indirectoEditable()) return `<span class="mono val-calc" title="Promedio de los meses capturados">${fMXN(v)}</span>`;
   if(k==="catalogo") return inp(`indirectos.${i}.m`,{ph:"—"});
+  if(realValor("indirectos",indKey(it),k)!=null) return `<span class="mono val-calc" title="Dato real de los XML del mes (Compras, gastos y nómina)">${fMXN(v)}</span>${etiquetaXML()}`;
   const P=ensurePeriodo(k); const id=indKey(it);
   const ov=(P.indirectos||{})[id];
   const disp=(ov===undefined||ov===null||ov==="")?"":ov;
@@ -797,7 +799,7 @@ function nextInsId(){
 function clienteDe(ins){ return (ins&&ins.cliente)?String(ins.cliente).trim():""; }
 function clienteLabel(ins){ return clienteDe(ins)||"Sin cliente"; }
 function ensureClientes(){
-  ensureFacturas(); ensureProduccion();
+  ensureFacturas(); ensureProduccion(); ensureCompras();
   if(!Array.isArray(S.clientes)) S.clientes=[];
   // normalizar material de pieza guardado como texto ("1","2","3") a número
   (S.inserts||[]).forEach(i=>{ const pz=i&&i.diseno&&i.diseno.piezas; if(Array.isArray(pz)) pz.forEach(p=>{ if(p&&typeof p.mat==="string"){ const n=Number(p.mat); p.mat=(Number.isFinite(n)&&n>=1&&n<=3)?n:1; } }); });
@@ -1451,6 +1453,218 @@ function secProduccion(R){
     <div class="note" style="margin-top:8px"><b>Cómo capturar:</b> un renglón por inserto y jornada (o por lote). <b>Min preparación</b> = tiempo de reloj para alistar el lote (sacar placas, ajustar máquina, cambiar cuchilla). <b>Min producción</b> = tiempo de reloj desde la primera pieza hasta dejar el lote empacado. <b>Personas</b> = cuántas trabajaron en ese lote al mismo tiempo. La app multiplica tiempo × personas para obtener minutos-persona. Limpieza, recibo de material, esperas y mantenimiento no se registran aquí: van en Capacidad como mantenimiento o paros.</div>`;
 }
 
+/* ===================== COMPRAS, GASTOS Y NÓMINA (CFDI RECIBIDOS) ===================== */
+let comUltimo=null, REAL_VER=0; const REAL_CACHE={};
+function ensureCompras(){
+  if(!Array.isArray(S.compras)) S.compras=[];
+  if(!S.compraMap||typeof S.compraMap!=="object"||Array.isArray(S.compraMap)) S.compraMap={};
+  if(!Array.isArray(S.pagos)) S.pagos=[];
+}
+function normTxt(s){ return String(s||"").toUpperCase().replace(/[^A-Z0-9]+/g," ").trim().slice(0,60); }
+function claveConcepto(fa,c){ return (fa.emisorRfc||"SINRFC")+"|"+(c.n?("ID:"+String(c.n).trim()):("D:"+normTxt(c.d))); }
+function claveNomina(fa){ return "NOM|"+(fa.receptorRfc||normTxt(fa.receptor)); }
+function destinoDe(clave){ const m=(S.compraMap||{})[clave]; return m&&m.t?m:null; }
+function mesCompra(fa){ return String((fa.tipo==="N"&&fa.nomina&&fa.nomina.fechaPago)?fa.nomina.fechaPago:fa.fecha).slice(0,7); }
+// Resumen real del mes a partir de los XML recibidos (cacheado)
+function realMes(k){
+  ensureCompras();
+  const ck=k+"|"+REAL_VER+"|"+S.compras.length+"|"+Object.keys(S.compraMap).length+"|"+num(S.control.tcBase);
+  if(REAL_CACHE[k]&&REAL_CACHE[k].ck===ck) return REAL_CACHE[k].v;
+  const tcDef=num(S.control.tcBase)||0;
+  const v={ind:{},energia:null,mat:{},nomina:{},sinClasif:[],gastoMXN:0,matMXN:0,nominaMXN:0,ignMXN:0,docs:0};
+  S.compras.forEach(fa=>{
+    if(fa.cancelada||mesCompra(fa)!==k) return; v.docs++;
+    if(fa.tipo==="N"){
+      const cl=claveNomina(fa), d=destinoDe(cl), bruto=num(fa.nomina&&fa.nomina.percepciones)||num(fa.subtotal);
+      v.nominaMXN+=bruto;
+      if(d&&d.t==="nomina"&&d.v!=null&&d.v!==""){ const g=v.nomina[d.v]||(v.nomina[d.v]={bruto:0,recibos:0}); g.bruto+=bruto; g.recibos++; }
+      else if(!(d&&d.t==="ign")) v.sinClasif.push({clave:cl,tipo:"N",desc:fa.receptor||fa.receptorRfc,prov:"Nómina",imp:bruto,fecha:fa.fecha});
+      return;
+    }
+    const sg=fa.tipo==="E"?-1:1, tc=(fa.moneda==="MXN"||fa.moneda==="XXX")?1:(num(fa.tc)>0?num(fa.tc):tcDef);
+    (fa.conceptos||[]).forEach(c=>{
+      const cl=claveConcepto(fa,c), d=destinoDe(cl), mxn=num(c.i)*sg*tc;
+      if(!d){ v.sinClasif.push({clave:cl,tipo:fa.tipo,desc:c.d,n:c.n,prov:fa.emisor||fa.emisorRfc,imp:mxn,fecha:fa.fecha}); return; }
+      if(d.t==="ign"){ v.ignMXN+=mxn; return; }
+      if(d.t==="mat"){
+        const g=v.mat[d.v]||(v.mat[d.v]={placas:0,mxn:0,usd:0,lineas:0});
+        const usd=fa.moneda==="USD"?num(c.i)*sg:(tc>0&&tcDef>0?mxn/tcDef:0);
+        g.placas+=num(c.q)*sg; g.mxn+=mxn; g.usd+=usd; g.lineas++; v.matMXN+=mxn; return;
+      }
+      if(d.t==="energia"){ v.energia=(v.energia||0)+mxn; v.gastoMXN+=mxn; return; }
+      if(d.t==="gasto"){ v.ind[d.v]=(v.ind[d.v]||0)+mxn; v.gastoMXN+=mxn; return; }
+    });
+  });
+  REAL_CACHE[k]={ck,v}; return v;
+}
+// Valor real (de XML) que sustituye la captura del mes: indirectos, recibo CFE y sueldo por puesto
+function realValor(grupo,clave,mk){
+  if(!/^\d{4}-\d{2}$/.test(String(mk||""))) return null;
+  const v=realMes(mk);
+  if(grupo==="energia"&&clave==="reciboReal") return v.energia;
+  if(grupo==="indirectos") return (v.ind[clave]!=null)?v.ind[clave]:null;
+  if(grupo==="mano"){
+    const m=/^e(\d+)\.sueldo$/.exec(clave); if(!m) return null;
+    const g=v.nomina[m[1]]; if(!g||!(g.bruto>0)) return null;
+    const e=S.empleados[+m[1]]; if(!e) return null;
+    const P=(S.periodos||{})[mk]; const nOv=P&&P.mano?P.mano["e"+m[1]+".n"]:null;
+    const n=(nOv!=null&&nOv!=="")?num(nOv):num(e.n); if(!(n>0)) return null;
+    return e.period==="Semanal"?g.bruto/n/(num(S.moParams.semanas)||4.333):g.bruto/n;
+  }
+  return null;
+}
+function etiquetaXML(){ return ` <span class="tag" title="Tomado de los XML de Compras, gastos y nómina">XML</span>`; }
+function parseCFDIRaw(xmlText){
+  const doc=new DOMParser().parseFromString(xmlText,"application/xml");
+  if(doc.getElementsByTagName("parsererror").length) throw new Error("el archivo no es un XML válido");
+  const all=root=>[...root.getElementsByTagName("*")];
+  const comp=all(doc).find(e=>e.localName==="Comprobante"); if(!comp) throw new Error("no es un CFDI (falta el nodo Comprobante)");
+  const a=(e,k)=>e?(e.getAttribute(k)||""):"";
+  const tipo=a(comp,"TipoDeComprobante");
+  const tfd=all(doc).find(e=>e.localName==="TimbreFiscalDigital");
+  const uuid=a(tfd,"UUID").toUpperCase();
+  if(!/^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/.test(uuid)) throw new Error("no tiene timbre fiscal (UUID)");
+  const kids=(e,name)=>[...e.children].filter(x=>x.localName===name);
+  const em=kids(comp,"Emisor")[0], re=kids(comp,"Receptor")[0];
+  const fecha=a(comp,"Fecha").slice(0,10);
+  if(!/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/.test(fecha)) throw new Error("fecha inválida");
+  let moneda=(a(comp,"Moneda")||"MXN").toUpperCase(); if(!/^[A-Z]{3}$/.test(moneda)) moneda="MXN";
+  const tc=a(comp,"TipoCambio")?num(a(comp,"TipoCambio")):null;
+  const cont=kids(comp,"Conceptos")[0];
+  const conceptos=(cont?kids(cont,"Concepto"):[]).map(c=>{
+    const imp=num(a(c,"Importe")), des=num(a(c,"Descuento"));
+    return {n:limpiaTxt(a(c,"NoIdentificacion"),80),d:limpiaTxt(a(c,"Descripcion"),200),
+            q:num(a(c,"Cantidad")),u:num(a(c,"ValorUnitario")),i:Math.round((imp-des)*100)/100};
+  });
+  if(conceptos.length>500) throw new Error("tiene más de 500 conceptos");
+  const out={uuid,fecha,serie:limpiaTxt(a(comp,"Serie"),40),folio:limpiaTxt(a(comp,"Folio"),40),tipo,moneda,
+    tc:(tc>0?tc:null),emisorRfc:limpiaTxt(a(em,"Rfc"),20),emisor:limpiaTxt(a(em,"Nombre"),200),
+    receptorRfc:limpiaTxt(a(re,"Rfc"),20),receptor:limpiaTxt(a(re,"Nombre"),200),
+    subtotal:num(a(comp,"SubTotal")),total:num(a(comp,"Total")),metodo:limpiaTxt(a(comp,"MetodoPago"),3),conceptos};
+  if(tipo==="N"){
+    const nom=all(doc).find(e=>e.localName==="Nomina");
+    const fp=a(nom,"FechaPago").slice(0,10);
+    out.nomina={fechaPago:/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/.test(fp)?fp:fecha,
+      percepciones:num(a(nom,"TotalPercepciones"))+num(a(nom,"TotalOtrosPagos")),deducciones:num(a(nom,"TotalDeducciones"))};
+  }
+  if(tipo==="P"){
+    out.docs=[];
+    all(doc).filter(e=>e.localName==="Pago").forEach(p=>{
+      const fp=a(p,"FechaPago").slice(0,10);
+      [...p.getElementsByTagName("*")].filter(x=>x.localName==="DoctoRelacionado").forEach(d=>{
+        const id=a(d,"IdDocumento").toUpperCase();
+        if(/^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/.test(id))
+          out.docs.push({id,imp:num(a(d,"ImpPagado")),f:/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/.test(fp)?fp:fecha});
+      });
+    });
+    if(!out.docs.length) throw new Error("el complemento de pago no relaciona facturas");
+  }
+  return out;
+}
+function rfcEmpresa(){ ensureFacturas(); const c={}; S.facturas.forEach(f=>{ if(f.emisorRfc) c[f.emisorRfc]=(c[f.emisorRfc]||0)+1; }); return Object.keys(c).sort((a,b)=>c[b]-c[a])[0]||null; }
+function opcionesDestino(sel){
+  const o=(v,t)=>`<option value="${escapeHtml(v)}" ${v===sel?'selected':''}>${escapeHtml(t)}</option>`;
+  const mats=(S.catalogo||[]).map(m=>m.nombre).filter(Boolean);
+  const inds=S.indirectos.map(i=>indKey(i)).filter(Boolean);
+  return `<option value="">Clasificar como…</option>`
+    +`<optgroup label="Material (foam)">${mats.map(m=>o("mat|"+m,m)).join("")}</optgroup>`
+    +`<optgroup label="Gasto (Indirectos)">${inds.map(c=>o("gasto|"+c,c)).join("")}</optgroup>`
+    +`<optgroup label="Otros">${o("energia|","Energía · recibo CFE")}${o("ign|","Ignorar (no es costo de operación)")}</optgroup>`;
+}
+function opcionesPuesto(sel){
+  return `<option value="">Asignar a puesto…</option>`+S.empleados.map((e,i)=>`<option value="nomina|${i}" ${("nomina|"+i)===sel?'selected':''}>${escapeHtml((e.puesto||"Puesto "+(i+1))+" · "+(e.tipo||""))}</option>`).join("")
+    +`<option value="ign|" ${sel==="ign|"?'selected':''}>Ignorar</option>`;
+}
+function secCompras(R){
+  ensureCompras();
+  const k=periodoKey(); const V=realMes(k);
+  const lista=S.compras.filter(fa=>mesCompra(fa)===k);
+  // Pendientes agrupados por clave
+  const grp={}; V.sinClasif.forEach(x=>{ const g=grp[x.clave]||(grp[x.clave]={...x,imp:0,veces:0}); g.imp+=x.imp; g.veces++; });
+  const pend=Object.values(grp).sort((a,b)=>Math.abs(b.imp)-Math.abs(a.imp));
+  const pRows=pend.map(g=>`<tr><td class="l">${escapeHtml(g.prov||'—')}</td><td class="l">${escapeHtml(g.desc||'—')}${g.n?` <span class="hint">(${escapeHtml(g.n)})</span>`:''}</td>
+      <td class="mono">${g.veces}</td><td class="mono val-calc">${fMXN(g.imp)}</td>
+      <td class="l"><select class="f" data-cmap="${escapeHtml(g.clave)}">${g.tipo==="N"?opcionesPuesto(""):opcionesDestino("")}</select></td></tr>`).join("");
+  // Gastos reales por concepto de Indirectos
+  const gRows=S.indirectos.filter(it=>V.ind[indKey(it)]!=null).map(it=>{ const id=indKey(it); const P=(S.periodos||{})[k]; const man=P&&P.indirectos?P.indirectos[id]:null;
+    return `<tr><td class="l">${escapeHtml(id)}</td><td class="l">${escapeHtml(it.cl)}</td><td class="mono val-calc">${it.m==null?'—':fMXN(num(it.m))}</td><td class="mono val-calc">${man==null||man===""?'—':fMXN(num(man))}</td><td class="mono val-calc" style="font-weight:700">${fMXN(V.ind[id])}</td></tr>`; }).join("")
+    +(V.energia!=null?`<tr><td class="l">Energía · recibo CFE</td><td class="l">Pool de manufactura</td><td class="mono val-calc">${S.energia.reciboReal==null?'—':fMXN(num(S.energia.reciboReal))}</td><td class="mono val-calc">—</td><td class="mono val-calc" style="font-weight:700">${fMXN(V.energia)}</td></tr>`:'');
+  // Material real vs catálogo
+  const M=computeMes(R,k);
+  const mRows=Object.keys(V.mat).sort().map(nom=>{ const g=V.mat[nom]; const c=(S.catalogo||[]).find(x=>x.nombre===nom)||{};
+    const pr=g.placas>0?g.usd/g.placas:null; const cat=num(c.costo); const varp=(pr!=null&&cat>0)?pr/cat-1:null;
+    const req=(M.mats||[]).find(x=>x.nom===nom);
+    return `<tr><td class="l">${escapeHtml(nom)}</td><td class="mono val-calc">${fN(g.placas,0)}</td><td class="mono val-calc">${fMXN(g.mxn)}</td>
+      <td class="mono val-calc" style="font-weight:700">${pr==null?'—':fUSD(pr)}</td><td class="mono val-calc">${cat>0?fUSD(cat):'—'}</td>
+      <td class="mono" style="color:${varp>0.02?'var(--red)':'inherit'}">${varp==null?'—':((varp>0?'+':'')+fPct(varp))}</td>
+      <td class="mono val-calc">${req?fN(req.frac,1):'—'}</td><td class="mono val-calc" title="Placas compradas − placas teóricas del plan del mes (desperdicio o inventario)">${req?fN(g.placas-req.frac,1):'—'}</td>
+      <td>${pr!=null?`<button class="rowbtn" style="margin:0" data-click="actualizarPrecioCatalogo('${escapeHtml(nom)}')">Actualizar catálogo</button>`:''}</td></tr>`; }).join("");
+  // Nómina real por puesto
+  const nRows=Object.keys(V.nomina).map(i=>{ const e=S.empleados[+i]; if(!e) return ''; const g=V.nomina[i]; const eq=realValor("mano","e"+i+".sueldo",k);
+    return `<tr><td class="l">${escapeHtml(e.puesto||'')}</td><td class="l">${escapeHtml(e.tipo||'')}</td><td class="mono">${g.recibos}</td><td class="mono val-calc">${fMXN(g.bruto)}</td>
+      <td class="mono val-calc">${e.sueldo==null?'—':fMXN(num(e.sueldo))} <span class="hint">${escapeHtml(e.period||'')}</span></td><td class="mono val-calc" style="font-weight:700">${eq==null?'—':fMXN(eq)}</td></tr>`; }).join("");
+  const fRows=lista.slice().sort((a,b)=>String(b.fecha).localeCompare(String(a.fecha))).map(fa=>{
+    const tc=(fa.moneda==="MXN"||fa.moneda==="XXX")?1:(num(fa.tc)||R.tc); const sub=(fa.tipo==="N"?num(fa.nomina&&fa.nomina.percepciones):num(fa.subtotal))*(fa.tipo==="E"?-1:1)*tc;
+    return `<tr${fa.cancelada?' style="opacity:.5"':''}><td class="l mono">${escapeHtml(fa.fecha)}</td>
+      <td class="l">${fa.tipo==="N"?'<span class="tag">Nómina</span> ':''}${fa.tipo==="E"?'<span class="tag">N. crédito</span> ':''}${escapeHtml(fa.tipo==="N"?(fa.receptor||fa.receptorRfc):(fa.emisor||fa.emisorRfc))}</td>
+      <td class="mono">${escapeHtml(fa.moneda)}</td><td class="mono val-calc">${fMXN(sub)}</td><td class="mono">${(fa.conceptos||[]).length}</td>
+      <td class="l"><button class="rowbtn" style="margin:0" data-click="toggleCompraCancelada('${fa.uuid}')">${fa.cancelada?'Cancelada · reactivar':'Vigente · cancelar'}</button></td>
+      <td><button class="del" data-click="delCompra('${fa.uuid}')" title="Eliminar XML">✕</button></td></tr>`; }).join("");
+  const ult=comUltimo?`<div class="note" style="margin:0 0 12px">${comUltimo}</div>`:"";
+  return head("Compras, gastos y nómina","CFDI RECIBIDOS · DATOS REALES",
+    "Sube los XML de tus <b>facturas de proveedores</b> (foam, renta, CFE, consumibles, servicios…) y los <b>recibos de nómina</b>. Clasifica cada concepto una sola vez y la app lo recordará. Lo clasificado sustituye automáticamente la captura del mes: gastos en <b>Indirectos</b>, recibo en <b>Energía</b> y sueldos en <b>Mano de obra</b> (verás la etiqueta XML). El foam comprado se compara contra el precio del catálogo y contra el requerimiento del plan.")
+  +`<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+      <div class="exsel" style="display:inline-flex"><span>Periodo</span>
+        <input type="month" class="f" style="width:140px" value="${escapeHtml(k)}" data-change="setPeriodo(this.value)"></div>
+      <label class="btn primary" style="cursor:pointer">Subir XML recibidos
+        <input type="file" accept=".xml,text/xml,application/xml" multiple style="display:none" data-change="subirCompras(event)"></label>
+      <span class="hint">${nombreMes(k)} · ${V.docs} XML vigente(s) · ${S.compras.length} en total</span>
+    </div>
+    ${ult}
+    <div class="hero">
+      ${hcard("Gastos reales del mes",fMXN0(V.gastoMXN),"indirectos y CFE clasificados · antes de IVA","",true)}
+      ${hcard("Foam comprado",fMXN0(V.matMXN),Object.keys(V.mat).length+" material(es)")}
+      ${hcard("Nómina real",fMXN0(V.nominaMXN),"percepciones de los recibos")}
+      ${hcard("Por clasificar",String(pend.length),pend.length?fMXN0(V.sinClasif.reduce((a,x)=>a+x.imp,0))+" sin destino":"todo clasificado",pend.length?"a":"v")}
+    </div>
+    ${pend.length?`<div class="sechead" style="margin-top:6px"><h2 style="font-size:17px">Por clasificar</h2><span class="src">se recuerda para los siguientes meses</span></div>
+    <div class="tabla-integral" style="margin-top:8px"><table class="compact"><thead><tr><th class="l">Proveedor / empleado</th><th class="l">Concepto</th><th>Veces</th><th>Importe MXN</th><th class="l">Destino</th></tr></thead><tbody>${pRows}</tbody></table></div>`:''}
+    <div class="sechead" style="margin-top:18px"><h2 style="font-size:17px">Gastos reales vs. capturados</h2><span class="src">${nombreMes(k)}</span></div>
+    ${gRows?`<div class="tabla-integral" style="margin-top:8px"><table class="compact"><thead><tr><th class="l">Concepto</th><th class="l">Clasificación</th><th>Catálogo</th><th>Captura manual del mes</th><th>Real (XML)</th></tr></thead><tbody>${gRows}</tbody></table></div>
+    <div class="note" style="margin-top:6px">El monto real sustituye la captura de ese mes en Indirectos y Energía. Los conceptos sin XML conservan su captura manual o el valor del catálogo.</div>`:`<div class="note">Aún no hay gastos clasificados en ${nombreMes(k)}.</div>`}
+    <div class="sechead" style="margin-top:18px"><h2 style="font-size:17px">Foam comprado vs. catálogo y plan</h2><span class="src">${nombreMes(k)}</span></div>
+    ${mRows?`<div class="tabla-integral" style="margin-top:8px"><table class="compact"><thead><tr><th class="l">Material</th><th>Placas<br>compradas</th><th>Importe<br>MXN</th><th>Precio real<br>USD/placa</th><th>Precio<br>catálogo</th><th>Variación</th><th>Placas<br>teóricas plan</th><th>Diferencia</th><th></th></tr></thead><tbody>${mRows}</tbody></table></div>
+    <div class="note" style="margin-top:6px">La cantidad del concepto se toma como número de placas. <b>Diferencia</b> positiva = se compró más de lo que pide el plan (desperdicio real mayor al teórico o inventario). <b>Actualizar catálogo</b> pone el precio real promedio como nuevo costo de la placa (los meses cerrados no cambian).</div>`:`<div class="note">Aún no hay compras de foam clasificadas en ${nombreMes(k)}.</div>`}
+    <div class="sechead" style="margin-top:18px"><h2 style="font-size:17px">Nómina real por puesto</h2><span class="src">${nombreMes(k)}</span></div>
+    ${nRows?`<div class="tabla-integral" style="margin-top:8px"><table class="compact"><thead><tr><th class="l">Puesto</th><th class="l">Tipo</th><th>Recibos</th><th>Percepciones<br>del mes</th><th>Sueldo<br>capturado</th><th>Sueldo real<br>equivalente</th></tr></thead><tbody>${nRows}</tbody></table></div>
+    <div class="note" style="margin-top:6px">Sueldo real equivalente = percepciones del mes ÷ personas del puesto (÷ semanas por mes si es semanal). Sustituye el sueldo del mes en Mano de obra; las cargas patronales se siguen calculando con tus porcentajes.</div>`:`<div class="note">Aún no hay recibos de nómina asignados en ${nombreMes(k)}.</div>`}
+    <div class="sechead" style="margin-top:18px"><h2 style="font-size:17px">XML de ${nombreMes(k)}</h2><span class="src">${lista.length} archivo(s)</span></div>
+    ${lista.length?`<div class="tabla-integral" style="margin-top:8px"><table class="compact"><thead><tr><th class="l">Fecha</th><th class="l">Proveedor / empleado</th><th>Moneda</th><th>Subtotal MXN</th><th>Conceptos</th><th class="l">Estado</th><th></th></tr></thead><tbody>${fRows}</tbody></table></div>`:`<div class="note">Aún no hay XML de este mes.</div>`}`;
+}
+document.addEventListener("change",e=>{
+  const el=e.target; if(!el.dataset||el.dataset.cmap===undefined) return;
+  ensureCompras(); const clave=el.dataset.cmap; if(!clave||!el.value) return;
+  const i=el.value.indexOf("|"); const t=el.value.slice(0,i), v=el.value.slice(i+1);
+  S.compraMap[clave]={t,v}; REAL_VER++;
+  save(); renderKPIs(); renderChain(); renderSection(current); toast("Clasificado: "+(t==="mat"?"material "+v:t==="gasto"?"gasto "+v:t==="energia"?"energía (CFE)":t==="nomina"?"nómina":"ignorado"));
+});
+/* ---------- Cobranza real (complementos de pago) ---------- */
+function computeCobranza(R){
+  ensureFacturas(); ensureCompras();
+  const pagosPor={}; S.pagos.forEach(p=>(p.docs||[]).forEach(d=>{ (pagosPor[d.id]||(pagosPor[d.id]=[])).push(d); }));
+  const hoy=new Date(); let sumImpDias=0,sumImp=0,saldoMXN=0,vencidas=0,pagadas=0,conPago=0;
+  S.facturas.filter(f=>f.tipo==="I"&&!f.cancelada).forEach(f=>{
+    const tc=(f.moneda==="MXN"||f.moneda==="XXX")?1:(num(f.tc)||R.tc); const total=num(f.total);
+    const pp=pagosPor[f.uuid]||[];
+    if(f.metodo==="PUE"&&!pp.length){ pagadas++; return; }
+    const pag=pp.reduce((a,d)=>a+num(d.imp),0);
+    pp.forEach(d=>{ const dias=Math.max(0,(new Date(d.f)-new Date(f.fecha))/864e5); sumImpDias+=num(d.imp)*tc*dias; sumImp+=num(d.imp)*tc; });
+    if(pp.length) conPago++;
+    const saldo=Math.max(0,total-pag); if(saldo>0.5){ saldoMXN+=saldo*tc; if((hoy-new Date(f.fecha))/864e5>30) vencidas++; } else pagadas++;
+  });
+  return {dias:sumImp>0?sumImpDias/sumImp:null,saldoMXN,vencidas,pagadas,conPago,complementos:S.pagos.length};
+}
+
 /* ===================== FACTURAS DE VENTA (CFDI XML) ===================== */
 let facUltimo=null;
 function ensureFacturas(){
@@ -1503,34 +1717,12 @@ function proyectadoPeriodo(R,key){
   return {ventas,piezas,porIns};
 }
 function parseCFDI(xmlText){
-  const doc=new DOMParser().parseFromString(xmlText,"application/xml");
-  if(doc.getElementsByTagName("parsererror").length) throw new Error("el archivo no es un XML válido");
-  const all=root=>[...root.getElementsByTagName("*")];
-  const comp=all(doc).find(e=>e.localName==="Comprobante"); if(!comp) throw new Error("no es un CFDI (falta el nodo Comprobante)");
-  const a=(e,k)=>e?(e.getAttribute(k)||""):"";
-  const tipo=a(comp,"TipoDeComprobante");
-  if(tipo==="P") throw new Error("es un complemento de pago, no una factura de venta");
-  if(tipo!=="I"&&tipo!=="E") throw new Error("tipo de comprobante "+(tipo||"desconocido")+" no soportado");
-  const tfd=all(doc).find(e=>e.localName==="TimbreFiscalDigital");
-  const uuid=a(tfd,"UUID").toUpperCase();
-  if(!/^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/.test(uuid)) throw new Error("no tiene timbre fiscal (UUID)");
-  const kids=(e,name)=>[...e.children].filter(x=>x.localName===name);
-  const em=kids(comp,"Emisor")[0], re=kids(comp,"Receptor")[0];
-  const cont=kids(comp,"Conceptos")[0];
-  const conceptos=(cont?kids(cont,"Concepto"):[]).map(c=>{
-    const imp=num(a(c,"Importe")), des=num(a(c,"Descuento"));
-    return {n:limpiaTxt(a(c,"NoIdentificacion"),80),d:limpiaTxt(a(c,"Descripcion"),200),
-            q:num(a(c,"Cantidad")),u:num(a(c,"ValorUnitario")),i:Math.round((imp-des)*100)/100};
-  });
-  if(!conceptos.length) throw new Error("no tiene conceptos");
-  if(conceptos.length>500) throw new Error("tiene más de 500 conceptos");
-  const fecha=a(comp,"Fecha").slice(0,10);
-  if(!/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/.test(fecha)) throw new Error("fecha inválida");
-  let moneda=(a(comp,"Moneda")||"MXN").toUpperCase(); if(!/^[A-Z]{3}$/.test(moneda)) moneda="MXN";
-  const tc=a(comp,"TipoCambio")?num(a(comp,"TipoCambio")):null;
-  return {uuid,fecha,serie:limpiaTxt(a(comp,"Serie"),40),folio:limpiaTxt(a(comp,"Folio"),40),tipo,moneda,
-    tc:(tc>0?tc:null),emisorRfc:limpiaTxt(a(em,"Rfc"),20),receptorRfc:limpiaTxt(a(re,"Rfc"),20),receptor:limpiaTxt(a(re,"Nombre"),200),
-    subtotal:num(a(comp,"SubTotal")),total:num(a(comp,"Total")),conceptos};
+  const r=parseCFDIRaw(xmlText);
+  if(r.tipo==="P") throw new Error("es un complemento de pago");
+  if(r.tipo!=="I"&&r.tipo!=="E") throw new Error("tipo de comprobante "+(r.tipo||"desconocido")+" no soportado");
+  if(!r.conceptos.length) throw new Error("no tiene conceptos");
+  return {uuid:r.uuid,fecha:r.fecha,serie:r.serie,folio:r.folio,tipo:r.tipo,moneda:r.moneda,tc:r.tc,emisorRfc:r.emisorRfc,
+    receptorRfc:r.receptorRfc,receptor:r.receptor,subtotal:r.subtotal,total:r.total,metodo:r.metodo||undefined,conceptos:r.conceptos};
 }
 function pctCumpl(real,proy){ return proy>0?real/proy:null; }
 function luzCumpl(p){ return p==null?"g":(p>=1?"v":(p>=0.9?"a":"r")); }
@@ -1606,6 +1798,14 @@ function secFacturas(R){
       ${hcard("Cumplimiento",cumpl==null?"—":fPct(cumpl),cumpl==null?"sin volumen proyectado":(F.mxn-Pj.ventas>=0?"+":"")+fMXN0(F.mxn-Pj.ventas)+" vs. proyectado",luzCumpl(cumpl))}
       ${hcard("Piezas facturadas",fN(F.piezas,0),"vs. "+fN(Pj.piezas,0)+" proyectadas")}
     </div>
+    ${(function(){ const C=computeCobranza(R); if(!C.complementos&&!S.facturas.some(f=>f.metodo)) return `<div class="note" style="margin:0 0 12px">Sube también los <b>complementos de pago</b> (XML tipo P) con el mismo botón: la app calculará tus días reales de cobro y el saldo por cobrar.</div>`;
+      return `<div class="card" style="margin-bottom:12px"><h3>Cobranza real (todas las facturas)</h3><div class="pad"><table class="fija">
+        <tr><td class="l" style="width:55%">Días promedio de cobro <span class="hint">(ponderado por importe, según complementos de pago)</span></td><td class="mono val-calc" style="font-weight:700">${C.dias==null?'—':fN(C.dias,0)+' días'}</td></tr>
+        <tr><td class="l">Saldo por cobrar (con IVA)</td><td class="mono val-calc">${fMXN(C.saldoMXN)}</td></tr>
+        <tr><td class="l">Facturas con saldo y más de 30 días</td><td class="mono val-calc">${C.vencidas}</td></tr>
+        <tr><td class="l">Complementos de pago cargados</td><td class="mono val-calc">${C.complementos}</td></tr>
+      </table>${C.dias!=null?`<div style="margin-top:8px"><button class="rowbtn" style="margin:0" data-click="usarDiasCobro()">Usar ${fN(C.dias,0)} días como crédito al cliente en el costo financiero</button></div>`:''}
+      <div class="note" style="margin-top:8px">Las facturas PUE sin complemento se consideran cobradas al emitirse. Las PPD quedan con saldo hasta que llegue su complemento de pago.</div></div></div>`; })()}
     <div class="sechead" style="margin-top:18px"><h2 style="font-size:17px">Proyectado vs. facturado por inserto</h2><span class="src">${nombreMes(k)}</span></div>
     ${ids.length?`<div class="tabla-integral" style="margin-top:8px"><table class="compact"><thead><tr>
       <th class="l">Inserto</th><th class="l">Cliente</th><th>Pzas<br>proyectadas</th><th>Pzas<br>facturadas</th><th>Diferencia<br>pzas</th><th class="l">Cumplimiento</th>
@@ -1648,6 +1848,7 @@ function secValidacion(R){
   const sinMonto=S.indirectos.filter(i=>i.m==null||i.m==="").length;
   const extra=[
     {k:"Conceptos facturados sin inserto",v:sinIns,rev:sinIns>0},
+    {k:"XML recibidos sin clasificar ("+nombreMes(kV)+")",v:realMes(kV).sinClasif.length,rev:realMes(kV).sinClasif.length>0},
     {k:"Puestos con personas pero sin sueldo",v:sinSueldo,rev:sinSueldo>0},
     {k:"Indirectos sin monto capturado (informativo)",v:sinMonto,rev:false},
     {k:"Plan de "+nombreMes(kV)+": horas requeridas > disponibles",v:(XV.hReq>XV.hDisp&&XV.hDisp>0)?1:0,rev:XV.hReq>XV.hDisp&&XV.hDisp>0},
@@ -1825,7 +2026,7 @@ function etiquetaPeriodo(key){
 function valPeriodo(grupo,clave,base){
   const k=S.periodoVista||"catalogo";
   const nn=v=>(v===undefined||v===null||v==="")?null:num(v);
-  const get=mk=>{ const P=(S.periodos||{})[mk]; const g=P&&P[grupo]; return g?nn(g[clave]):null; };
+  const get=mk=>{ const r=realValor(grupo,clave,mk); if(r!=null) return r; const P=(S.periodos||{})[mk]; const g=P&&P[grupo]; return g?nn(g[clave]):null; };
   if(!k||k==="catalogo") return base;
   if(String(k).indexOf("anio:")===0){
     const ms=mesesDe(String(k).slice(5)); if(!ms.length) return base;
@@ -1848,7 +2049,7 @@ function mesesDe(y){ return Object.keys(S.periodos||{}).filter(k=>k.indexOf(y+"-
 function montoIndirecto(it,key){
   const k=(key!==undefined)?key:(S.periodoVista||"catalogo");
   const base=num(it.m), id=indKey(it);
-  const ovMes=mk=>{ const P=(S.periodos||{})[mk]; const o=P&&P.indirectos&&P.indirectos[id];
+  const ovMes=mk=>{ const r=realValor("indirectos",id,mk); if(r!=null) return r; const P=(S.periodos||{})[mk]; const o=P&&P.indirectos&&P.indirectos[id];
                     return (o===undefined||o===null||o==="")?null:num(o); };
   if(!k||k==="catalogo") return base;
   if(String(k).indexOf("anio:")===0){
@@ -1866,6 +2067,7 @@ function perInput(grupo,clave,basePath,opts){
   const base=getPath(basePath);
   const val=valPeriodo(grupo,clave,base);
   if(!periodoEditable()) return `<span class="mono val-calc" title="Promedio de los meses capturados">${opts.pct?fPct(val):(val==null?'<span class="hint">—</span>':fN(num(val),opts.dec===undefined?2:opts.dec))}</span>`;
+  if(realValor(grupo,clave,k)!=null) return `<span class="mono val-calc" title="Dato real de los XML del mes (Compras, gastos y nómina)">${fN(num(val),opts.dec===undefined?2:opts.dec)}</span>${etiquetaXML()}`;
   const P=ensurePeriodo(k); const g=P[grupo]||{}; const ov=g[clave];
   let disp=(ov===undefined||ov===null||ov==="")?"":ov;
   if(opts.pct&&disp!=="") disp=+disp*100;
@@ -2042,10 +2244,10 @@ function buildPresupuestoCharts(R){
 function renderSection(id){
   destroyCharts();
   // A4: Costeo mensual y Facturas siempre se calculan con las tarifas del mes que muestran
-  const R=(id==="mes"||id==="facturas"||id==="integral"||id==="produccion")?computeAt(periodoKey()):compute();
+  const R=(id==="mes"||id==="facturas"||id==="integral"||id==="produccion"||id==="compras")?computeAt(periodoKey()):compute();
   const map={dashboard:secDashboard,mes:secMes,presupuesto:secPresupuesto,resumen:secResumen,control:secControl,capacidad:secCapacidad,mano:secMano,
     indirectos:secIndirectos,energia:secEnergia,centros:secCentros,
-    ruta:secRuta,financiero:secControl,facturas:secFacturas,produccion:secProduccion,integral:secMes,placas:secDiseno,diagrama:secDiagrama,validacion:secValidacion};
+    ruta:secRuta,financiero:secControl,facturas:secFacturas,compras:secCompras,produccion:secProduccion,integral:secMes,placas:secDiseno,diagrama:secDiagrama,validacion:secValidacion};
   const cont=document.getElementById("content");
   cont.className="content"+(puedeEditar()?"":" ro");
   cont.innerHTML=(map[id]||secDashboard)(R);
@@ -2274,6 +2476,13 @@ function buildWorkbook(){
     S.produccion.slice().sort((a,b)=>String(a.fecha).localeCompare(String(b.fecha))).forEach(r=>{ const mp=(num(r.prep)+num(r.min))*Math.max(1,num(r.nop)); pr.push([r.fecha||"",String(r.ins||""),num(r.pzas),num(r.rech),num(r.prep),num(r.min),Math.max(1,num(r.nop)),r2(mp),num(r.pzas)>0?r2(mp/num(r.pzas)):"",r.nota||""]); });
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(pr), "Producción real");
   }
+  ensureCompras();
+  if(S.compras.length){
+    const cx=[["UUID","Fecha","Tipo","Proveedor / empleado","RFC","Moneda","TC","No. identificación","Descripción","Cantidad","Importe","Destino","Estado"]];
+    S.compras.forEach(fa=>{ if(fa.tipo==="N"){ const d=destinoDe(claveNomina(fa)); cx.push([fa.uuid,(fa.nomina&&fa.nomina.fechaPago)||fa.fecha,"Nómina",fa.receptor||"",fa.receptorRfc||"",fa.moneda,"","","Percepciones",1,num(fa.nomina&&fa.nomina.percepciones),d?(d.t==="nomina"?"Puesto: "+((S.empleados[+d.v]||{}).puesto||d.v):d.t):"(sin clasificar)",fa.cancelada?"Cancelada":"Vigente"]); return; }
+      (fa.conceptos||[]).forEach(c=>{ const d=destinoDe(claveConcepto(fa,c)); cx.push([fa.uuid,fa.fecha,fa.tipo==="E"?"Nota de crédito":"Factura",fa.emisor||"",fa.emisorRfc||"",fa.moneda,fa.tc||"",c.n||"",c.d||"",num(c.q),num(c.i)*(fa.tipo==="E"?-1:1),d?(d.t+(d.v?": "+d.v:"")):"(sin clasificar)",fa.cancelada?"Cancelada":"Vigente"]); }); });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(cx), "Compras y gastos");
+  }
   ensureFacturas();
   if(S.facturas.length){
     const fx=[["UUID","Fecha","Serie","Folio","Tipo","Cliente","RFC cliente","Moneda","TC","No. identificación","Inserto","Descripción","Cantidad","Valor unitario","Importe","Importe MXN","Estado"]];
@@ -2345,13 +2554,16 @@ const app={
   abrirAcceso(){ NF.openAccount(); },
   setPeriodoVista(v){ S.periodoVista=v||"catalogo"; if(/^\d{4}-\d{2}$/.test(S.periodoVista)) S.periodoActivo=S.periodoVista; save(); renderKPIs(); renderChain(); renderSection(current); toast("Consultando "+etiquetaPeriodo(S.periodoVista)); },
   setPresuPeriodo(v){ S.periodoVista=v||"catalogo"; if(/^\d{4}-\d{2}$/.test(S.periodoVista)) S.periodoActivo=S.periodoVista; save(); renderKPIs(); renderChain(); renderSection("presupuesto"); },
-  setPeriodo(v){ if(!v) return; S.periodoActivo=v; S.periodoVista=v; ensurePeriodo(v); save(); renderKPIs(); renderChain(); renderSection((current==="facturas"||current==="produccion")?current:"mes"); },
+  setPeriodo(v){ if(!v) return; S.periodoActivo=v; S.periodoVista=v; ensurePeriodo(v); save(); renderKPIs(); renderChain(); renderSection((current==="facturas"||current==="produccion"||current==="compras")?current:"mes"); },
   async subirFacturas(ev){
     const input=ev&&ev.target; const files=input&&input.files?[...input.files]:[]; if(!files.length) return;
-    ensureFacturas(); const ya=new Set(S.facturas.map(f=>f.uuid)); let ok=0,dup=0; const errs=[]; const meses={};
+    ensureFacturas(); const ya=new Set(S.facturas.map(f=>f.uuid)); let ok=0,okP=0,dup=0; const errs=[]; const meses={};
     for(const file of files){
       try{
         if(file.size>2*1024*1024) throw new Error("pesa más de 2 MB");
+        const raw=parseCFDIRaw(await file.text());
+        if(raw.tipo==="P"){ ensureCompras(); if(S.pagos.some(p=>p.uuid===raw.uuid)){dup++;continue;}
+          S.pagos.push({uuid:raw.uuid,fecha:raw.fecha,receptorRfc:raw.receptorRfc,docs:raw.docs.slice(0,500)}); okP++; continue; }
         const fa=parseCFDI(await file.text());
         if(ya.has(fa.uuid)){dup++;continue;}
         S.facturas.push(fa); ya.add(fa.uuid); ok++; meses[fa.fecha.slice(0,7)]=(meses[fa.fecha.slice(0,7)]||0)+1;
@@ -2360,9 +2572,43 @@ const app={
     if(input) input.value="";
     S.facturas.sort((a,b)=>String(a.fecha).localeCompare(String(b.fecha)));
     const ms=Object.keys(meses).sort(); if(ms.length) S.periodoActivo=ms[ms.length-1];
-    facUltimo=`<b>Carga:</b> ${ok} factura(s) agregada(s)${ms.length?(" ("+ms.map(m=>nombreMes(m)+": "+meses[m]).join(", ")+")"):""}${dup?(" · "+dup+" ya existían (no se duplicaron)"):""}${errs.length?("<br><b>No se cargaron "+errs.length+":</b> "+errs.join(" · ")):""}`;
-    if(ok) save(); renderKPIs(); renderChain(); renderSection("facturas"); toast(ok+" factura(s) cargada(s)");
+    facUltimo=`<b>Carga:</b> ${ok} factura(s) agregada(s)${okP?(" · "+okP+" complemento(s) de pago"):""}${ms.length?(" ("+ms.map(m=>nombreMes(m)+": "+meses[m]).join(", ")+")"):""}${dup?(" · "+dup+" ya existían (no se duplicaron)"):""}${errs.length?("<br><b>No se cargaron "+errs.length+":</b> "+errs.join(" · ")):""}`;
+    if(ok||okP) save(); renderKPIs(); renderChain(); renderSection("facturas"); toast(ok+" factura(s) y "+okP+" complemento(s) cargados");
   },
+  async subirCompras(ev){
+    const input=ev&&ev.target; const files=input&&input.files?[...input.files]:[]; if(!files.length) return;
+    ensureCompras(); const ya=new Set(S.compras.map(f=>f.uuid)); const rfcE=rfcEmpresa(); let ok=0,dup=0; const errs=[]; const meses={};
+    for(const file of files){
+      try{
+        if(file.size>2*1024*1024) throw new Error("pesa más de 2 MB");
+        const r=parseCFDIRaw(await file.text());
+        if(r.tipo==="P") throw new Error("es un complemento de pago: súbelo en Facturas de venta");
+        if(r.tipo!=="I"&&r.tipo!=="E"&&r.tipo!=="N") throw new Error("tipo de comprobante "+(r.tipo||"desconocido")+" no soportado");
+        if(r.tipo!=="N"&&rfcE&&r.emisorRfc===rfcE) throw new Error("la emitió tu empresa (es una factura de venta): súbela en Facturas de venta");
+        if(r.tipo!=="N"&&!r.conceptos.length) throw new Error("no tiene conceptos");
+        if(ya.has(r.uuid)){dup++;continue;}
+        const fa={uuid:r.uuid,fecha:r.fecha,serie:r.serie,folio:r.folio,tipo:r.tipo,moneda:r.moneda,tc:r.tc,emisorRfc:r.emisorRfc,emisor:r.emisor,
+          receptorRfc:r.receptorRfc,receptor:r.receptor,subtotal:r.subtotal,total:r.total,metodo:r.metodo||undefined,conceptos:r.tipo==="N"?[]:r.conceptos};
+        if(r.nomina) fa.nomina=r.nomina;
+        S.compras.push(fa); ya.add(fa.uuid); ok++; const mk=mesCompra(fa); meses[mk]=(meses[mk]||0)+1;
+      }catch(e){ errs.push(escapeHtml(file.name)+": "+escapeHtml(e.message||String(e))); }
+    }
+    if(input) input.value="";
+    S.compras.sort((a,b)=>String(a.fecha).localeCompare(String(b.fecha))); REAL_VER++;
+    const ms=Object.keys(meses).sort(); if(ms.length){ S.periodoActivo=ms[ms.length-1]; S.periodoVista=S.periodoActivo; }
+    comUltimo=`<b>Carga:</b> ${ok} XML agregado(s)${ms.length?(" ("+ms.map(m=>nombreMes(m)+": "+meses[m]).join(", ")+")"):""}${dup?(" · "+dup+" ya existían"):""}${errs.length?("<br><b>No se cargaron "+errs.length+":</b> "+errs.join(" · ")):""}`;
+    if(ok) save(); renderKPIs(); renderChain(); renderSection("compras"); toast(ok+" XML cargado(s)");
+  },
+  toggleCompraCancelada(uuid){ ensureCompras(); const fa=S.compras.find(f=>f.uuid===uuid); if(!fa) return; if(fa.cancelada) delete fa.cancelada; else fa.cancelada=true; REAL_VER++; save(); renderKPIs(); renderChain(); renderSection(current); },
+  delCompra(uuid){ ensureCompras(); const fa=S.compras.find(f=>f.uuid===uuid); if(!fa) return;
+    askConfirm("¿Eliminar el XML de <b>"+escapeHtml(fa.emisor||fa.receptor||fa.uuid)+"</b> del "+escapeHtml(fa.fecha)+"? Puedes volver a subirlo después.",()=>{
+      S.compras=S.compras.filter(f=>f.uuid!==uuid); REAL_VER++; save(); renderKPIs(); renderChain(); renderSection(current); toast("XML eliminado"); },"Eliminar"); },
+  actualizarPrecioCatalogo(nom){ const k=periodoKey(); const g=realMes(k).mat[nom]; const c=(S.catalogo||[]).find(x=>x.nombre===nom);
+    if(!g||!c||!(g.placas>0)){ toast("Sin datos de compra para "+nom); return; }
+    const pr=Math.round(g.usd/g.placas*10000)/10000;
+    askConfirm(`¿Actualizar el costo de <b>${escapeHtml(nom)}</b> en el catálogo de ${fUSD(num(c.costo))} a <b>${fUSD(pr)}</b> por placa (precio real promedio de ${nombreMes(k)})?<br><br>Cambia el costo de material de todos los insertos que la usan; los meses cerrados no cambian.`,()=>{
+      c.costo=pr; save(); renderKPIs(); renderChain(); renderSection(current); toast("Catálogo actualizado"); },"Actualizar"); },
+  usarDiasCobro(){ const C=computeCobranza(compute()); if(C.dias==null) return; S.financiero.diasCliente=Math.round(C.dias); save(); renderKPIs(); renderChain(); renderSection(current); toast("Días de crédito al cliente: "+Math.round(C.dias)); },
   addRegistro(){ ensureProduccion(); if(!S.inserts.length){ toast("Primero crea un inserto en Costeo de placas"); return; }
     const k=periodoKey(); const hoy=new Date().toISOString().slice(0,10);
     const fecha=hoy.slice(0,7)===k?hoy:(k+"-01");
@@ -2648,7 +2894,7 @@ window.app=app;
 window.NF_MODEL={
  defaults: DEFAULTS,
  read:()=>S,
- load:(state,role)=>{S=clone(state);setRol(role);ensureEscenarios();migrateCentros();ensureClientes();sortInserts();renderAll();},
+ load:(state,role)=>{S=clone(state);REAL_VER++;setRol(role);ensureEscenarios();migrateCentros();ensureClientes();sortInserts();renderAll();},
  refreshTC:()=>autoTC(),
  render:()=>renderAll(),
  sections:SECTIONS,
