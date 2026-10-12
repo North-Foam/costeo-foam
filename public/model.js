@@ -1623,6 +1623,12 @@ document.addEventListener("change",e=>{
   if(pz.mat&&pz.mat!=="(manual)"&&famDe(pz.mat)===pz.fam) return;
   const c=(S.catalogo||[]).find(x=>famDe(x.nombre)===pz.fam); pz.mat=c?c.nombre:"(manual)"; save(); renderSection(current);
 });
+// Folio: las cotizaciones nacen como borrador y el consecutivo NF-C-#### se asigna al emitirlas en firme
+function cqEsFirme(c){ return /^NF-C-\d+$/.test(String(c&&c.folio||"")); }
+function cqNumFolio(f){ const m=/^NF-C-(\d+)$/.exec(String(f||"")); return m?+m[1]:0; }
+function cqSiguienteFolio(){ ensureCotizador(); const n=Math.max(num(S.cotParams.ultimoFolio),...S.cotizaciones.map(c=>cqNumFolio(c.folio)),0)+1; return "NF-C-"+String(n).padStart(4,"0"); }
+function cqFolioBorrador(){ const n=Math.max(0,...S.cotizaciones.map(c=>{ const m=/^BORRADOR-(\d+)$/.exec(String(c.folio||"")); return m?+m[1]:0; }))+1; return "BORRADOR-"+n; }
+function cqEtiqueta(c){ return cqEsFirme(c)?c.folio:"Borrador "+String(c.folio||"").replace(/^BORRADOR-/,""); }
 function cqActual(){ ensureCotizador(); let i=S.cotizaciones.findIndex(c=>c.folio===cqSel); if(i<0&&S.cotizaciones.length){ i=S.cotizaciones.length-1; cqSel=S.cotizaciones[i].folio; } return i; }
 function cqMat(p){ // material efectivo de la pieza
   if(p.mat&&p.mat!=="(manual)"){ const c=catFind(p.mat)||{}; return {nombre:p.mat,fam:famDe(p.mat),largo:num(c.largo),ancho:num(c.ancho),grosor:num(c.grosor),precio:num(c.costo),bloque:!!(c.bloque||esBloqueMat(p.mat)),cat:true}; }
@@ -1676,8 +1682,9 @@ function cqCalc(cot,R){
 function secCotizador(R){
   ensureCotizador(); const i=cqActual(); const lista=S.cotizaciones;
   const sel=`<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
-      ${lista.length?`<div class="exsel" style="display:inline-flex"><span>Cotización</span><select data-change="cqSelect(this.value)">${lista.slice().reverse().map(c=>`<option value="${escapeHtml(c.folio)}" ${c.folio===cqSel?'selected':''}>${escapeHtml(c.folio+" · "+(c.cliente||"sin cliente")+(c.desc?" · "+c.desc:""))}</option>`).join("")}</select></div>`:""}
+      ${lista.length?`<div class="exsel" style="display:inline-flex"><span>Cotización</span><select data-change="cqSelect(this.value)">${lista.slice().reverse().map(c=>`<option value="${escapeHtml(c.folio)}" ${c.folio===cqSel?'selected':''}>${escapeHtml(cqEtiqueta(c)+" · "+(c.cliente||"sin cliente")+(c.desc?" · "+c.desc:""))}</option>`).join("")}</select></div>`:""}
       <button class="btn primary" data-click="cqNueva()">+ Nueva cotización</button>
+      ${i>=0&&!cqEsFirme(lista[i])?`<button class="btn" style="border-color:var(--green);color:var(--green)" data-click="cqFirme()">Emitir en firme (asigna folio ${escapeHtml(cqSiguienteFolio())})</button>`:""}
       ${i>=0?`<button class="rowbtn" style="margin:0" data-click="cqDuplicar()">Duplicar</button><button class="rowbtn" style="margin:0;border-color:var(--red);color:var(--red)" data-click="cqEliminar()">Eliminar</button>`:""}
     </div>`;
   const lead="Cotiza cualquier inserto sin darlo de alta: elige el estilo, las piezas con su material (polietileno, poliuretano, convoluted, XLPE, EVA, antiestático…) y los cortes. Usa el mismo cálculo de placas del Costeo de placas y las tarifas de la planta del mes de trabajo, y te da el precio por volumen. Cuando el cliente la acepta, la pasas al catálogo con un botón.";
@@ -1728,7 +1735,8 @@ function secCotizador(R){
       ${col("Placas a comprar",placasTxt)}
     </tbody></table>${!C.amort&&num(cot.suajeCosto)>0?`<div class="note" style="margin-top:8px">Cargo único de suaje: <b>${fUSD(num(cot.suajeCosto))}</b> (${fMXN(C.suajeMXN)}), se cobra aparte del precio por pieza.</div>`:''}`
     :`<div class="note">Captura al menos un volumen para ver el precio.</div>`;
-  return head("Cotizador","COTIZACIÓN GENERAL · "+escapeHtml(cot.folio),lead)+sel
+  return head("Cotizador","COTIZACIÓN GENERAL · "+escapeHtml(cqEsFirme(cot)?cot.folio:"BORRADOR (sin folio)"),lead)+sel
+    +(cqEsFirme(cot)?"":`<div class="note" style="margin:0 0 12px;border-color:var(--amber)">Esta cotización es un <b>borrador</b>: todavía no consume número de folio. Cuando esté lista, emítela en firme y se le asigna el consecutivo <b>${escapeHtml(cqSiguienteFolio())}</b>; el PDF para el cliente sólo sale de cotizaciones en firme.</div>`)
   +`<div class="hero">
       ${N1&&N1.capUSD!=null?hcard("Precio al cliente",fUSD(N1.capUSD),`capturado · margen ${fPct(N1.margenReal)} · sugerido ${N1.precioUSD!=null?fUSD(N1.precioUSD):"—"}`,N1.bajoPiso?"r":"",true)
         :hcard("Precio sugerido",N1&&N1.precioUSD!=null?fUSD(N1.precioUSD):"—",N1?`por pieza en ${fN(N1.Q,0)} pzas`:"captura volumen","",true)}
@@ -3414,6 +3422,7 @@ const app={
     if(!window.jspdf||!window.jspdf.jsPDF){alert("No se pudo cargar la librería de PDF. Revisa tu conexión e inténtalo de nuevo.");return;}
     const i=cqActual(); if(i<0) return; const cot=S.cotizaciones[i];
     const R=computeAt(periodoKey()); const C=cqCalc(cot,R);
+    if(!cqEsFirme(cot)){ app.cqFirme(()=>app.cqPDF()); return; }
     if(!C.niveles.length||C.niveles.some(n=>n.finalUSD==null)){ toast("Captura volúmenes y material completos antes de generar el PDF"); return; }
     if(C.incompleto){ toast("Hay piezas sin material o medidas: complétalas antes de generar el PDF"); return; }
     try{
@@ -3473,16 +3482,22 @@ const app={
   cqGuardarEmisor(){ const i=cqActual(); if(i<0) return; const c=S.cotizaciones[i]; ensureCotizador();
     CQ_CAMPOS.forEach(([k,,e])=>{ S.cotParams.emisor[e]=cqEm(c,k); }); save(); renderSection("cotizador"); toast("Tus datos quedaron como predeterminados para nuevas cotizaciones"); },
   cqSelect(v){ cqSel=v; renderSection("cotizador"); },
-  cqNueva(){ ensureCotizador(); const n=S.cotizaciones.reduce((a,c)=>{ const m=/(\d+)$/.exec(c.folio||""); return Math.max(a,m?+m[1]:0); },0)+1;
-    const folio="NF-C-"+String(n).padStart(4,"0"); const pe=(S.catalogo||[]).find(m=>famDe(m.nombre)==="Polietileno (PE)");
+  cqFirme(despues){ const i=cqActual(); if(i<0) return; const c=S.cotizaciones[i]; if(cqEsFirme(c)){ if(despues) despues(); return; }
+    { const C=cqCalc(c,computeAt(periodoKey())); if(!C.niveles.length||C.niveles.some(n=>n.finalUSD==null)||C.incompleto){ toast("Completa volúmenes, piezas y material antes de emitir la cotización en firme"); return; } }
+    const folio=cqSiguienteFolio();
+    askConfirm(`¿Emitir la cotización en firme${c.cliente?" para <b>"+escapeHtml(c.cliente)+"</b>":""}? Se le asigna el folio <b>${escapeHtml(folio)}</b> con fecha de hoy y el siguiente número queda para la próxima cotización.${despues?" Después se descarga el PDF.":""}`,()=>{
+      const folioN=cqSiguienteFolio(); c.folio=folioN; c.fecha=new Date().toISOString().slice(0,10); if(!c.estado||c.estado==="Borrador") c.estado="Enviada";
+      S.cotParams.ultimoFolio=cqNumFolio(folioN); cqSel=folioN; save(); renderSection("cotizador"); toast("Cotización emitida con folio "+folioN); if(despues) despues(); },"Emitir en firme"); },
+  cqNueva(){ ensureCotizador();
+    const folio=cqFolioBorrador(); const pe=(S.catalogo||[]).find(m=>famDe(m.nombre)==="Polietileno (PE)");
     S.cotizaciones.push({folio,fecha:new Date().toISOString().slice(0,10),cliente:"",desc:"",np:"",estado:"Borrador",estilo:"",v1:100,v2:500,v3:1000,margen:null,merma:0,suajeCosto:null,suajeModo:"amortizar",
       piezas:[{desc:"Plancha",fam:pe?"Polietileno (PE)":"",mat:pe?pe.nombre:"(manual)",L:null,A:null,G:null,cant:1}],ops:[{c:S.cotParams.cortes[0]?S.cotParams.cortes[0].n:"",veces:1}],extras:[],notas:""});
     { const E=S.cotParams.emisor||{}, c=S.cotizaciones[S.cotizaciones.length-1]; CQ_CAMPOS.forEach(([k,,e])=>{ c["em"+(k==="Contacto"?"Nombre":k)]=E[e]||""; }); }
-    cqSel=folio; save(); renderSection("cotizador"); toast("Cotización "+folio+" creada"); },
-  cqDuplicar(){ const i=cqActual(); if(i<0) return; const c=clone(S.cotizaciones[i]); const n=S.cotizaciones.reduce((a,x)=>{ const m=/(\d+)$/.exec(x.folio||""); return Math.max(a,m?+m[1]:0); },0)+1;
-    c.folio="NF-C-"+String(n).padStart(4,"0"); c.fecha=new Date().toISOString().slice(0,10); c.estado="Borrador"; S.cotizaciones.push(c); cqSel=c.folio; save(); renderSection("cotizador"); toast("Duplicada como "+c.folio); },
+    cqSel=folio; save(); renderSection("cotizador"); toast("Borrador creado: el folio se asigna al emitirla en firme"); },
+  cqDuplicar(){ const i=cqActual(); if(i<0) return; const c=clone(S.cotizaciones[i]);
+    c.folio=cqFolioBorrador(); c.fecha=new Date().toISOString().slice(0,10); c.estado="Borrador"; S.cotizaciones.push(c); cqSel=c.folio; save(); renderSection("cotizador"); toast("Duplicada como borrador: el folio se asigna al emitirla en firme"); },
   cqEliminar(){ const i=cqActual(); if(i<0) return; const c=S.cotizaciones[i];
-    askConfirm("¿Eliminar la cotización <b>"+escapeHtml(c.folio)+"</b>"+(c.cliente?" de "+escapeHtml(c.cliente):"")+"?",()=>{ S.cotizaciones.splice(i,1); cqSel=null; save(); renderSection("cotizador"); toast("Cotización eliminada"); },"Eliminar"); },
+    askConfirm("¿Eliminar la cotización <b>"+escapeHtml(cqEtiqueta(c))+"</b>"+(c.cliente?" de "+escapeHtml(c.cliente):"")+"?",()=>{ S.cotizaciones.splice(i,1); cqSel=null; save(); renderSection("cotizador"); toast("Cotización eliminada"); },"Eliminar"); },
   cqAplicarEstilo(){ const i=cqActual(); if(i<0) return; const cot=S.cotizaciones[i]; const e=CQ_ESTILOS().find(x=>x.n===cot.estilo);
     if(!e){ toast("Elige primero un estilo de inserto"); return; }
     const aplicar=()=>{ const base=(cot.piezas||[])[0]||{}; const cortes=S.cotParams.cortes.map(c=>c.n);
