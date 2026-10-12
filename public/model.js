@@ -2845,6 +2845,61 @@ function computePresupuesto(R,pk){
   return {key,etiqueta:etiquetaPeriodo(key),meses,gfManuf,gfAdmin,gfComer,gfLog,gfFin,otros,
           GF:GFper,GFmes:GF,ventas,matMes,varMes,otrosVar,gastoPlantaVar:R.gastoPlantaVar,contribMes,conVol,ratio,PE,utilOper,margenSeg,faltante,meta};
 }
+/* Resultado real con las facturas cargadas: venta facturada − costo variable de lo vendido (ajustado al foam real) − gastos fijos del periodo */
+function resultadoReal(R,P){
+  const key=P.key; if(key==="catalogo") return null;
+  const esMes=/^\d{4}-\d{2}$/.test(key);
+  const Rk=esMes?computeAt(key):R; const F=computeFacturado(Rk,key); if(!F.n) return null;
+  const Pk=esMes?computePresupuesto(Rk,key):P;
+  const com=Rk.comisionVenta; const byId=Object.fromEntries(Rk.integral.map(i=>[String(i.ins.id),i]));
+  const partes=Object.keys(F.porIns).map(id=>{ const r=F.porIns[id], it=byId[id]; if(!r.q&&!r.mxn) return null;
+      const cv=it?num(it.cvSinCom)*r.q+r.mxn*com:0;
+      return {id,cliente:it?clienteLabel(it.ins):"—",pz:r.q,venta:r.mxn,cv,c:r.mxn-cv,sinCosto:!it||!(num(it.cvSinCom)>0)}; })
+    .filter(Boolean).sort((a,b)=>b.venta-a.venta);
+  const ratioCat=P.ratio>0?1-P.ratio:null;           // costo variable / venta del plan
+  const ventaSin=F.sinMXN, cvSin=ratioCat!=null?ventaSin*ratioCat:0;
+  // Foam real (sólo por mes): precio de compra real y piezas rechazadas, igual que en Variaciones del mes
+  let ajusteFoam=0, V=null;
+  if(esMes){ try{ V=computeVariaciones(key); ajusteFoam=-((V.puente.find(x=>x.k==="Precio del foam")||{}).v||0)-((V.puente.find(x=>x.k==="Consumo de foam (rechazos)")||{}).v||0); }catch(e){ V=null; ajusteFoam=0; } }
+  const ventas=F.mxn, cv=partes.reduce((a,x)=>a+x.cv,0)+cvSin+ajusteFoam;
+  const contrib=ventas-cv, razon=ventas?contrib/ventas:null;
+  const fijos=Pk.GF, util=contrib-fijos, pe=razon>0?fijos/razon:null;
+  const hoy=new Date(), mesHoy=hoy.getFullYear()+"-"+String(hoy.getMonth()+1).padStart(2,"0");
+  return {key,esMes,F,n:F.n,partes,ventaSin,cvSin,nSin:F.sinAsignar.length,ajusteFoam,V,ventas,cv,contrib,razon,fijos,
+    fijosReal:esMes&&realMes(key).docs>0,util,pe,avance:pe>0?ventas/pe:null,enCurso:key===mesHoy,razonCat:P.conVol?P.ratio:null};
+}
+function panelReal(x,P){
+  if(P.key==="catalogo") return "";
+  if(!x) return `<div class="card full" style="margin-bottom:14px"><h3>Resultado real · ${escapeHtml(P.etiqueta)}</h3><div class="pad"><div class="note">Aún no hay facturas de venta en ${escapeHtml(P.etiqueta)}. Súbelas en <b>Facturas de venta</b> y aquí verás si ya cubren los gastos del mes.</div></div></div>`;
+  const ok=x.util>=0, dif=(x.razon!=null&&x.razonCat!=null)?x.razon-x.razonCat:null;
+  const rows=x.partes.map(p=>`<tr><td class="l mono">${escapeHtml(p.id)}${p.sinCosto?' <span class="hint" style="color:var(--red)">sin costo</span>':''}</td><td class="l">${escapeHtml(p.cliente)}</td>
+      <td class="mono val-calc">${fN(p.pz,0)}</td><td class="mono val-calc">${fMXN(p.venta)}</td><td class="mono val-calc">${fMXN(p.cv)}</td>
+      <td class="mono val-calc" style="${p.c<0?'color:var(--red)':''}">${fMXN(p.c)}</td>
+      <td class="mono val-calc" style="${p.venta&&p.c/p.venta<0.15?'color:var(--red)':''}">${p.venta?fPct(p.c/p.venta):'—'}</td></tr>`).join("");
+  return `<div class="card full" style="margin-bottom:14px"><h3>Resultado real con las facturas cargadas · ${escapeHtml(P.etiqueta)}</h3><div class="pad">
+    <div class="hint" style="margin-bottom:10px">${x.n} factura(s) vigente(s).${x.enCurso?" El mes no ha terminado: es el avance a la fecha contra los gastos fijos del mes completo.":""}</div>
+    <div class="hero" style="margin-bottom:6px">
+      ${hcard("Ventas facturadas",fMXN0(x.ventas),"sin IVA","",true)}
+      ${hcard("Costo variable de lo vendido",fMXN0(x.cv),x.esMes&&Math.abs(x.ajusteFoam)>0.5?("incluye "+(x.ajusteFoam>0?"+":"")+fMXN0(x.ajusteFoam)+" de foam real"):"material, energía de proceso, consumibles y comisión")}
+      ${hcard("Lo que queda para gastos fijos",fMXN0(x.contrib),x.razon==null?"":fPct(x.razon)+" de cada peso vendido",x.contrib>=0?"":"r")}
+      ${hcard("Gastos fijos "+(x.esMes?"del mes":"del periodo"),fMXN0(x.fijos),x.fijosReal?"con los gastos reales en XML":"del presupuesto del mes")}
+    </div>
+    <div class="hero" style="margin-bottom:10px">
+      ${hcard(ok?"Utilidad real":"Falta para cubrir los gastos",fMXN0(Math.abs(x.util)),ok?"las ventas ya pagan el costo variable y los gastos fijos":(x.razon>0?"ventas que faltan: "+fMXN0(-x.util/x.razon):"el margen real no alcanza"),ok?"v":"r")}
+      ${hcard("Equilibrio con el margen real",x.pe==null?"—":fMXN0(x.pe),x.avance==null?"":"llevas "+fPct(x.avance)+" del equilibrio",x.avance==null?"g":(x.avance>=1?"v":(x.avance>=0.8?"a":"r")))}
+      ${hcard("Margen real de contribución",x.razon==null?"—":fPct(x.razon),x.razonCat==null?"":"presupuestado "+fPct(x.razonCat),dif==null?"g":(dif>=-0.02?"v":"a"))}
+      ${hcard("Piezas facturadas",fN(x.F.piezas,0),x.partes.length+" inserto(s)")}
+    </div>
+    ${dif!=null&&Math.abs(dif)>0.05?`<div class="note" style="margin-bottom:10px;border-color:var(--amber)">El margen real de lo facturado (${fPct(x.razon)}) es ${dif>0?"mayor":"menor"} que el presupuestado (${fPct(x.razonCat)}). Por eso el punto de equilibrio presupuestado de abajo ${dif>0?"sale más alto":"sale más bajo"} que el real. Revisa en <b>Costeo mensual</b> y <b>Precio mínimo</b> el volumen, el costo y el precio de los insertos con más diferencia.</div>`:""}
+    <table class="fija"><thead><tr><th class="l" style="width:16%">Inserto</th><th class="l">Cliente</th><th>Piezas</th><th>Venta</th><th>Costo variable</th><th>Le queda</th><th>Margen</th></tr></thead><tbody>
+      ${rows}
+      ${x.ventaSin?`<tr class="sub"><td class="l" colspan="3">Conceptos sin inserto (${x.nSin})</td><td class="mono">${fMXN(x.ventaSin)}</td><td class="mono">${fMXN(x.cvSin)}</td><td class="mono">${fMXN(x.ventaSin-x.cvSin)}</td><td class="mono">estimado</td></tr>`:""}
+      ${x.esMes&&Math.abs(x.ajusteFoam)>0.5?`<tr class="sub"><td class="l" colspan="4">Ajuste por foam real (precio de compra y piezas rechazadas)</td><td class="mono">${(x.ajusteFoam>0?"+":"")+fMXN(x.ajusteFoam)}</td><td class="mono" style="color:${x.ajusteFoam>0?'var(--red)':'var(--green)'}">${fMXN(-x.ajusteFoam)}</td><td></td></tr>`:""}
+      <tr class="total"><td class="l" colspan="3">Total</td><td class="mono">${fMXN(x.ventas)}</td><td class="mono">${fMXN(x.cv)}</td><td class="mono">${fMXN(x.contrib)}</td><td class="mono">${x.razon==null?"—":fPct(x.razon)}</td></tr>
+    </tbody></table>
+    <div class="note" style="margin-top:10px">Costo variable = piezas facturadas × costo variable estándar de cada inserto (material, energía de proceso, consumibles, financiamiento y garantías) más la comisión sobre lo facturado${x.ventaSin?"; lo que no está ligado a un inserto se estima con el margen del presupuesto":""}${x.esMes?". El foam se ajusta a lo real con el precio de compra de los últimos 3 meses y las piezas rechazadas del registro de producción, igual que en Variaciones del mes":""}.</div>
+  </div></div>`;
+}
 function secPresupuesto(R){
   const P=computePresupuesto(R);
   let estLuz,estTxt;
@@ -2853,6 +2908,7 @@ function secPresupuesto(R){
   else if(Math.abs(P.utilOper)<1){estLuz="a";estTxt="En punto de equilibrio";}
   else {estLuz="r";estTxt="Por debajo del punto de equilibrio";}
   const per = (P.PE!=null&&P.ventas>0)?P.PE/P.ventas:null;
+  const X=resultadoReal(R,P);
 
   const pnl=`<table>
     <tr><td class="l">Ventas netas mensuales</td><td class="mono val-calc">${P.conVol?fMXN(P.ventas):'<span class="val-pend">captura volúmenes</span>'}</td></tr>
@@ -2889,6 +2945,8 @@ function secPresupuesto(R){
       ${periodoSelector()}
       <span class="hint">${escapeHtml(P.etiqueta)}${P.meses>1?(" · "+P.meses+" meses acumulados"):""}${P.conVol?"":" · sin volúmenes capturados en este periodo"}</span>
     </div>
+    ${panelReal(X,P)}
+    ${P.key!=="catalogo"?`<h3 style="margin:6px 0 10px;font-size:15px">Presupuesto del periodo</h3>`:""}
     <div class="hero">
       ${hcard("Ventas "+(P.meses>1?"del año":"del periodo"),P.conVol?fMXN0(P.ventas):"—",escapeHtml(P.etiqueta),"",true)}
       ${hcard("Margen de contribución",fPct(P.ratio),P.conVol?"ponderado por mezcla":"promedio (sin volumen)")}
@@ -2907,18 +2965,18 @@ function secPresupuesto(R){
       <div class="card"><h3>Estado de resultados mensual</h3><div class="pad">${pnl}
         <div class="note" style="margin-top:10px">Utilidad de operación antes de impuestos. No incluye ISR/IVA.</div></div></div>
       <div class="card"><h3>Punto de equilibrio</h3><div class="pad">${be}</div></div>
-      ${(function(){ if(P.key==="catalogo") return ""; const F=computeFacturado(R,P.key); if(!F.n) return `<div class="card full"><h3>Real facturado · ${escapeHtml(P.etiqueta)}</h3><div class="pad"><div class="note">Sin facturas de venta en este periodo. Súbelas en <b>Facturas de venta</b> para ver el resultado real contra el equilibrio.</div></div></div>`;
-        const uo=F.contrib-P.GF; const pc=pctCumpl(F.mxn,P.ventas);
+      ${(function(){ if(P.key==="catalogo"||!X) return ""; const F={mxn:X.ventas,variable:X.cv,contrib:X.contrib,n:X.n,sinAsignar:X.F.sinAsignar};
+        const uo=X.util; const pc=pctCumpl(F.mxn,P.ventas);
         return `<div class="card full"><h3>Real facturado vs. proyectado · ${escapeHtml(P.etiqueta)}</h3><div class="pad"><table class="fija">
           <tr><th class="l" style="width:40%"></th><th>Proyectado</th><th>Facturado (real)</th><th>Diferencia</th></tr>
           <tr><td class="l">Ventas netas</td><td class="mono val-calc">${fMXN(P.ventas)}</td><td class="mono val-calc" style="font-weight:700">${fMXN(F.mxn)}</td><td class="mono val-calc">${fMXN(F.mxn-P.ventas)}</td></tr>
           <tr><td class="l">(−) Costo variable</td><td class="mono val-calc">(${fMXN(P.varMes)})</td><td class="mono val-calc">(${fMXN(F.variable)})</td><td class="mono val-calc">${fMXN(P.varMes-F.variable)}</td></tr>
           <tr class="sub"><td class="l">= Margen de contribución</td><td class="mono">${fMXN(P.contribMes)}</td><td class="mono">${fMXN(F.contrib)}</td><td class="mono">${fMXN(F.contrib-P.contribMes)}</td></tr>
-          <tr><td class="l">(−) Gastos fijos</td><td class="mono val-calc">(${fMXN(P.GF)})</td><td class="mono val-calc">(${fMXN(P.GF)})</td><td></td></tr>
+          <tr><td class="l">(−) Gastos fijos</td><td class="mono val-calc">(${fMXN(P.GF)})</td><td class="mono val-calc">(${fMXN(X.fijos)})</td><td class="mono val-calc">${fMXN(P.GF-X.fijos)}</td></tr>
           <tr class="total"><td class="l">= Utilidad de operación</td><td class="mono">${P.utilOper==null?'—':fMXN(P.utilOper)}</td><td class="mono">${fMXN(uo)}</td><td class="mono">${P.utilOper==null?'—':fMXN(uo-P.utilOper)}</td></tr>
           <tr><td class="l">Cumplimiento de ventas</td><td></td><td class="mono">${pc==null?'—':fPct(pc)}</td><td></td></tr>
           <tr><td class="l">Facturado vs. punto de equilibrio</td><td></td><td class="mono">${P.PE==null?'—':(F.mxn>=P.PE?('+'+fMXN(F.mxn-P.PE)+' arriba'):(fMXN(F.mxn-P.PE)+' abajo'))}</td><td></td></tr>
-        </table><div class="note" style="margin-top:10px">${F.n} factura(s) vigente(s). Costo variable real = costo variable estándar por pieza × piezas facturadas de cada inserto (la comisión sobre el importe facturado)${F.sinAsignar.length?('; '+F.sinAsignar.length+' concepto(s) sin inserto no llevan costo de material'):''}.</div></div></div>`; })()}
+        </table><div class="note" style="margin-top:10px">${F.n} factura(s) vigente(s). Lo real es el mismo cálculo del resultado real de arriba.</div></div></div>`; })()}
       <div class="card full"><h3>Gráfica de equilibrio</h3><div class="chartbox tall"><canvas id="ch_breakeven"></canvas></div></div>
       <div class="card full"><h3>Gastos fijos de operación (mensuales)</h3><div class="pad">${gf}</div></div>
     </div>`;
