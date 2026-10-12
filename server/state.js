@@ -58,7 +58,7 @@ const schema = z.object({
   periodoActivo:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).nullable(), periodoVista:z.string().regex(/^(catalogo|anio:\d{4}|\d{4}-(0[1-9]|1[0-2]))$/),
   facturas:z.array(factura).max(3000).optional(), compras:z.array(compra).max(4000).optional(), pagos:z.array(pago).max(3000).optional(),
   compraMap:z.record(key, z.object({ t: z.enum(['mat','gasto','energia','nomina','ign']), v: text.optional() }).strict()).optional(),
-  cotParams:z.object({ cortes:z.array(z.object({ n:text, ...numbers(['prep','min']), ce:text.optional(), suaje:z.boolean().optional() }).strict()).max(100), extras:z.array(cotExtra).max(100),
+  cotParams:z.object({ cortes:z.array(z.object({ n:text, ...numbers(['prep','min']), ce:text.optional(), suaje:z.boolean().optional() }).strict()).max(100), extras:z.array(cotExtra).max(100), ...numbers(['ultimoFolio']),
     emisor:z.object(Object.fromEntries(['nombre','dir','ciudad','cp','correo','cel'].map(k => [k, text.optional()]))).strict().optional() }).strict().optional(),
   cotizaciones:z.array(cotizacion).max(3000).optional(),
   seguridad:z.object({ pinSalt: z.string().regex(/^[0-9a-f]{32}$/), pinHash: z.string().regex(/^[0-9a-f]{64}$/) }).strict().optional(), produccion:z.array(registro).max(10000).optional(), facturaMap:z.record(key,id).optional(),
