@@ -1593,9 +1593,29 @@ function ensureCotizador(){
   if(!S.cotParams||typeof S.cotParams!=="object") S.cotParams={cortes:CQ_CORTES_DEF(),extras:CQ_EXTRAS_DEF()};
   if(!Array.isArray(S.cotParams.cortes)) S.cotParams.cortes=CQ_CORTES_DEF();
   if(!Array.isArray(S.cotParams.extras)) S.cotParams.extras=CQ_EXTRAS_DEF();
+  if(!S.cotParams.emisor||typeof S.cotParams.emisor!=="object") S.cotParams.emisor={nombre:"",dir:"",ciudad:"Mexicali, B.C.",cp:"",correo:"",cel:""};
   if(!Array.isArray(S.cotizaciones)) S.cotizaciones=[];
 }
 var cqSel=null;
+var CQ_CAMPOS=[["Contacto","Contacto","nombre"],["Dir","Dirección","dir"],["Ciudad","Ciudad y estado","ciudad"],["CP","C.P.","cp"],["Correo","Correo","correo"],["Cel","Celular","cel"]];
+// Dato del emisor (quien cotiza): el de la cotización o, si está vacío, el predeterminado
+function cqEm(cot,k){ const c=CQ_CAMPOS.find(x=>x[0]===k); const v=String(cot["em"+(k==="Contacto"?"Nombre":k)]||"").trim(); return v||String((S.cotParams.emisor||{})[c[2]]||"").trim(); }
+function cqContactosHTML(cot,pth){
+  const E=S.cotParams.emisor||{};
+  const fila=(lbl,path,ph)=>`<tr><td class="l">${lbl}</td><td>${inp(path,{type:"text",cls:"txt wide",ph:ph||""})}</td></tr>`;
+  return `<div class="grid2">
+    <div class="card"><h3>Cliente</h3><div class="pad"><table>
+      ${fila("Empresa",`${pth}.cliente`)}
+      ${CQ_CAMPOS.map(([k,l])=>fila(l,`${pth}.cli${k}`)).join("")}
+    </table></div></div>
+    <div class="card"><h3>Quién cotiza · North Foam</h3><div class="pad"><table>
+      ${CQ_CAMPOS.map(([k,l,e])=>fila(l,`${pth}.em${k==="Contacto"?"Nombre":k}`,E[e]||"")).join("")}
+    </table>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px"><button class="rowbtn" style="margin:0" data-click="cqGuardarEmisor()">Guardar como mis datos predeterminados</button>
+      <span class="hint">Las cotizaciones nuevas se llenan con tus datos predeterminados; lo que dejes vacío se toma de ahí.</span></div>
+    </div></div>
+  </div>`;
+}
 // Al cambiar la familia de una pieza, propone el primer material de esa familia
 document.addEventListener("change",e=>{
   const el=e.target; const m=/^cotizaciones\.(\d+)\.piezas\.(\d+)\.fam$/.exec((el.dataset&&el.dataset.path)||""); if(!m) return;
@@ -1707,9 +1727,9 @@ function secCotizador(R){
       ${hcard("Material por pieza",fUSD(C.matUSD),C.piezas.length+" pieza(s) · "+(C.incompleto?"falta material":"completo"),C.incompleto?"a":"v")}
       ${hcard("Tipo de cambio",fN(C.tc,4),"del mes de trabajo · "+escapeHtml(nombreMes(periodoKey())))}
     </div>
+    ${cqContactosHTML(cot,pth)}
     <div class="grid2">
       <div class="card"><h3>Datos de la cotización</h3><div class="pad"><table>
-        <tr><td class="l">Cliente</td><td>${inp(`${pth}.cliente`,{type:"text",cls:"txt wide"})}</td></tr>
         <tr><td class="l">Descripción</td><td>${inp(`${pth}.desc`,{type:"text",cls:"txt wide"})}</td></tr>
         <tr><td class="l">Número de parte / inserto <span class="hint">(para pasarlo al catálogo)</span></td><td>${inp(`${pth}.np`,{type:"text",cls:"txt wide"})}</td></tr>
         <tr><td class="l">Estado</td><td>${selRaw(`${pth}.estado`,["Borrador","Enviada","Ganada","Perdida"],cot.estado||"Borrador")}</td></tr>
@@ -1742,7 +1762,7 @@ function secCotizador(R){
       <div class="hint" style="padding:6px 12px">Los tiempos de cada tipo de corte se ajustan abajo en <b>Parámetros del cotizador</b>. La tarifa por hora es la del centro de costo del mes de trabajo (mano de obra + indirectos).</div></div></div>
     <div class="card" style="margin-top:16px"><h3>Precio por volumen</h3><div class="pad">${res}
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><button class="btn primary" data-click="cqPDF()">Descargar PDF para el cliente</button>${puedeEditar()?`<button class="btn" data-click="cqAlCatalogo()">Crear inserto en Costeo de placas</button>`:''}</div>
-      <div class="note" style="margin-top:8px">Precio sugerido = costo total ÷ (1 − margen − comisión). El <b>precio piso</b> sólo cubre material, extras, suaje y energía de proceso: abajo de él cada pieza pierde. El PDF para el cliente lleva tu logo, las piezas, los procesos y el precio por volumen; no muestra costos ni márgenes. Al crear el inserto se copian las piezas, los materiales (máximo 3), el precio del primer volumen y los tiempos a la Ruta de proceso.</div></div></div>
+      <div class="note" style="margin-top:8px">Precio sugerido = costo total ÷ (1 − margen − comisión). El <b>precio piso</b> sólo cubre material, extras, suaje y energía de proceso: abajo de él cada pieza pierde. El PDF para el cliente lleva tu logo, los datos de contacto de ambos, el producto, las piezas y el precio por volumen; no muestra costos ni márgenes. Al crear el inserto se copian las piezas, los materiales (máximo 3), el precio del primer volumen y los tiempos a la Ruta de proceso.</div></div></div>
     ${cqParamsHTML()}`;
 }
 function cqParamsHTML(){
@@ -3398,20 +3418,26 @@ const app={
       const fd=d=>d.toLocaleDateString("es-MX",{day:"2-digit",month:"long",year:"numeric"});
       doc.text("Folio: "+cot.folio,W-M,76,{align:"right"}); doc.text("Fecha: "+fd(f),W-M,90,{align:"right"}); doc.text("Vigencia: hasta el "+fd(vence),W-M,104,{align:"right"});
       doc.setDrawColor(...azul); doc.setLineWidth(1.5); doc.line(M,122,W-M,122);
-      let y=144;
-      doc.setFont("helvetica","bold");doc.setFontSize(9);doc.setTextColor(120,130,140); doc.text("CLIENTE",M,y); doc.text("PRODUCTO",W/2,y);
-      doc.setFont("helvetica","normal");doc.setFontSize(11);doc.setTextColor(24,36,48);
-      const cli=doc.splitTextToSize(cot.cliente||"—",W/2-M-10), prod=doc.splitTextToSize([cot.desc||cot.estilo||"Inserto de protección",cot.np?("No. de parte: "+cot.np):""].filter(Boolean).join("\n"),W/2-M);
-      doc.text(cli,M,y+16); doc.text(prod,W/2,y+16); y+=16+Math.max(cli.length,prod.length)*14+14;
+      let y=136;
+      const lbl={fontStyle:"bold",textColor:[90,100,110],fillColor:[246,248,250]};
+      const cv=k=>String(cot["cli"+k]||"").trim();
+      const filasC=[["Empresa",String(cot.cliente||"").trim(),"Empresa","North Foam, S. de R.L. de C.V."]]
+        .concat(CQ_CAMPOS.map(([k,l])=>[l,cv(k),l,cqEm(cot,k)])).filter(r=>r[1]||r[3]);
+      doc.autoTable({head:[[{content:"CLIENTE",colSpan:2},{content:"COTIZA",colSpan:2}]],body:filasC.map(r=>[{content:r[0],styles:lbl},r[1]||"—",{content:r[2],styles:lbl},r[3]||"—"]),
+        startY:y,margin:{left:M,right:M},styles:{font:"helvetica",fontSize:9,cellPadding:4.5,lineColor:[221,227,232],lineWidth:.5,textColor:[24,36,48],overflow:"linebreak"},
+        headStyles:{fillColor:azul,textColor:255,fontStyle:"bold"},columnStyles:{0:{cellWidth:86},1:{cellWidth:172},2:{cellWidth:86},3:{cellWidth:172}}});
+      y=doc.lastAutoTable.finalY+12;
+      doc.autoTable({head:[["Producto","No. de parte","Estilo de inserto"]],body:[[cot.desc||cot.estilo||"Inserto de protección",cot.np||"—",cot.estilo||"—"]],
+        startY:y,margin:{left:M,right:M},styles:{font:"helvetica",fontSize:10,cellPadding:6,lineColor:[221,227,232],lineWidth:.5,textColor:[24,36,48]},
+        headStyles:{fillColor:azul,textColor:255,fontStyle:"bold"},columnStyles:{0:{fontStyle:"bold"}}});
+      y=doc.lastAutoTable.finalY+12;
       // Especificación
       const piezas=C.piezas.map(p=>[p.desc||"Pieza",p.M.cat?p.M.nombre:((p.fam||"Material")+(p.M.grosor>0?" "+toFrac(p.M.grosor)+'"':"")),
         `${toFrac(num(p.L))} × ${toFrac(num(p.A))}${p.M.bloque&&num(p.G)>0?" × "+toFrac(num(p.G)):(p.M.grosor>0&&!p.M.bloque?" × "+toFrac(p.M.grosor):"")} in`,fN(num(p.cant),0)]);
       doc.autoTable({head:[["Pieza","Material","Medidas (L × A × grosor)","Cant. por inserto"]],body:piezas,startY:y,margin:{left:M,right:M},
         styles:{font:"helvetica",fontSize:9,cellPadding:5,lineColor:[221,227,232],lineWidth:.5,textColor:[24,36,48]},
         headStyles:{fillColor:azul,textColor:255,fontStyle:"bold"},columnStyles:{3:{halign:"right"}}});
-      y=doc.lastAutoTable.finalY+10;
-      const procesos=[...new Set(C.ops.map(o=>o.c).filter(Boolean))];
-      if(procesos.length){ doc.setFontSize(9);doc.setTextColor(90,100,110); const t=doc.splitTextToSize("Procesos: "+procesos.join(", ")+".",W-2*M); doc.text(t,M,y+8); y+=t.length*12+14; }
+      y=doc.lastAutoTable.finalY+12;
       // Precios
       const filas=C.niveles.map(n=>[fN(n.Q,0)+" pzas",fUSD(n.precioUSD),fUSD(n.precioUSD*n.Q)]);
       doc.autoTable({head:[["Volumen","Precio unitario (USD)","Importe (USD)"]],body:filas,startY:y,margin:{left:M,right:M},
@@ -3435,11 +3461,14 @@ const app={
       saveFile("Cotizacion_"+cot.folio+(cot.cliente?"_"+String(cot.cliente).replace(/[^A-Za-z0-9]+/g,"_").slice(0,30):"")+".pdf", doc.output("blob"));
     }catch(e){console.error(e);alert("No se pudo generar el PDF.");}
   },
+  cqGuardarEmisor(){ const i=cqActual(); if(i<0) return; const c=S.cotizaciones[i]; ensureCotizador();
+    CQ_CAMPOS.forEach(([k,,e])=>{ S.cotParams.emisor[e]=cqEm(c,k); }); save(); renderSection("cotizador"); toast("Tus datos quedaron como predeterminados para nuevas cotizaciones"); },
   cqSelect(v){ cqSel=v; renderSection("cotizador"); },
   cqNueva(){ ensureCotizador(); const n=S.cotizaciones.reduce((a,c)=>{ const m=/(\d+)$/.exec(c.folio||""); return Math.max(a,m?+m[1]:0); },0)+1;
     const folio="NF-C-"+String(n).padStart(4,"0"); const pe=(S.catalogo||[]).find(m=>famDe(m.nombre)==="Polietileno (PE)");
     S.cotizaciones.push({folio,fecha:new Date().toISOString().slice(0,10),cliente:"",desc:"",np:"",estado:"Borrador",estilo:"",v1:100,v2:500,v3:1000,margen:null,merma:0,suajeCosto:null,suajeModo:"amortizar",
       piezas:[{desc:"Plancha",fam:pe?"Polietileno (PE)":"",mat:pe?pe.nombre:"(manual)",L:null,A:null,G:null,cant:1}],ops:[{c:S.cotParams.cortes[0]?S.cotParams.cortes[0].n:"",veces:1}],extras:[],notas:""});
+    { const E=S.cotParams.emisor||{}, c=S.cotizaciones[S.cotizaciones.length-1]; CQ_CAMPOS.forEach(([k,,e])=>{ c["em"+(k==="Contacto"?"Nombre":k)]=E[e]||""; }); }
     cqSel=folio; save(); renderSection("cotizador"); toast("Cotización "+folio+" creada"); },
   cqDuplicar(){ const i=cqActual(); if(i<0) return; const c=clone(S.cotizaciones[i]); const n=S.cotizaciones.reduce((a,x)=>{ const m=/(\d+)$/.exec(x.folio||""); return Math.max(a,m?+m[1]:0); },0)+1;
     c.folio="NF-C-"+String(n).padStart(4,"0"); c.fecha=new Date().toISOString().slice(0,10); c.estado="Borrador"; S.cotizaciones.push(c); cqSel=c.folio; save(); renderSection("cotizador"); toast("Duplicada como "+c.folio); },
