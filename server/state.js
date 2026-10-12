@@ -31,6 +31,12 @@ const compra = z.object({
   nomina: z.object({ fechaPago: fechaR, percepciones: num, deducciones: num }).strict().optional()
 }).strict();
 const pago = z.object({ uuid: uuidR, fecha: fechaR, receptorRfc: text.optional(), docs: z.array(z.object({ id: uuidR, imp: num, f: fechaR }).strict()).max(500) }).strict();
+const cotExtra = z.object({ n: text.optional(), ...numbers(['costo']) }).strict();
+const cotizacion = z.object({ folio: text, fecha: text.optional(), cliente: text.optional(), desc: text.optional(), np: text.optional(), estilo: text.optional(), estado: text.optional(), notas: text.optional(), suajeModo: text.optional(),
+  ...numbers(['v1','v2','v3','margen','merma','suajeCosto']),
+  piezas: z.array(z.object({ desc: text.optional(), fam: text.optional(), mat: text.optional(), ...numbers(['L','A','G','cant','mL','mA','mG','mPrecio']) }).strict()).max(200),
+  ops: z.array(z.object({ c: text.optional(), ...numbers(['veces']) }).strict()).max(100),
+  extras: z.array(cotExtra).max(50) }).strict();
 const registro = z.object({
   id: z.string().regex(/^[a-z0-9]{4,24}$/), fecha: z.string().regex(/^(\d{4}-(0[1-9]|1[0-2])-\d{2})?$/), ins: id,
   pzas: num.optional(), rech: num.optional(), prep: num.optional(), min: num.optional(), nop: num.optional(), nota: text.nullable().optional()
@@ -51,6 +57,8 @@ const schema = z.object({
   periodoActivo:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).nullable(), periodoVista:z.string().regex(/^(catalogo|anio:\d{4}|\d{4}-(0[1-9]|1[0-2]))$/),
   facturas:z.array(factura).max(3000).optional(), compras:z.array(compra).max(4000).optional(), pagos:z.array(pago).max(3000).optional(),
   compraMap:z.record(key, z.object({ t: z.enum(['mat','gasto','energia','nomina','ign']), v: text.optional() }).strict()).optional(),
+  cotParams:z.object({ cortes:z.array(z.object({ n:text, ...numbers(['prep','min']), ce:text.optional(), suaje:z.boolean().optional() }).strict()).max(100), extras:z.array(cotExtra).max(100) }).strict().optional(),
+  cotizaciones:z.array(cotizacion).max(3000).optional(),
   seguridad:z.object({ pinSalt: z.string().regex(/^[0-9a-f]{32}$/), pinHash: z.string().regex(/^[0-9a-f]{64}$/) }).strict().optional(), produccion:z.array(registro).max(10000).optional(), facturaMap:z.record(key,id).optional(),
   clientes:z.array(text).max(2000), ruta:z.array(z.object({ ins:id, proc:text, ce:text, ...numbers(['op','prep','lote','minMO','minMaq','nop','retrab','merma']) }).strict()).max(10000)
 }).strict();
