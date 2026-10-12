@@ -1647,8 +1647,8 @@ function cqCalc(cot,R){
   const suajeMXN=num(cot.suajeCosto)*tc, amort=(cot.suajeModo||"amortizar")==="amortizar";
   const margen=(cot.margen==null||cot.margen==="")?num(S.control.margenObj):num(cot.margen);
   const pctGO=R.pctAdmin+R.pctComercial+R.pctLog;
-  const vols=[cot.v1,cot.v2,cot.v3].map(num).filter(v=>v>0);
-  const niveles=vols.map(Q=>{
+  const vols=[cot.v1,cot.v2,cot.v3].map((v,k)=>({Q:num(v),k})).filter(x=>x.Q>0);
+  const niveles=vols.map(({Q,k})=>{
     const matMXN=matUSD*tc;
     const minPza=ops.reduce((a,o)=>a+o.prep/Q+o.min,0);
     const conv=ops.reduce((a,o)=>a+(o.prep/Q+o.min)*o.rate,0);
@@ -1662,8 +1662,14 @@ function cqCalc(cot,R){
     const piso=(1-R.comisionVenta)>0?(matMXN+extrasMXN+suajeU+indVar)*(1+R.finTotal)/(1-R.comisionVenta):null;
     const eq=(1-R.comisionVenta)>0?costo/(1-R.comisionVenta):null;
     const placas={}; piezas.forEach(p=>{ if(p.ppp>0){ const kN=p.M.cat?p.M.nombre:((p.fam||"Material")+" (manual)"); placas[kN]=(placas[kN]||0)+p.cant*Q*(1+merma)/p.ppp; } });
-    return {Q,matMXN,conv,suajeU,extrasMXN,gastosOp,fin,costo,precio,precioUSD:precio!=null&&tc>0?precio/tc:null,piso,eq,
-      minPza,horas:minPza*Q/60,totalMXN:precio!=null?precio*Q:null,placas};
+    const precioUSD=precio!=null&&tc>0?precio/tc:null;
+    // Precio capturado a mano para el cliente (USD); si no hay, se usa el sugerido
+    const capUSD=num(cot["pc"+(k+1)])>0?num(cot["pc"+(k+1)]):null;
+    const finalUSD=capUSD!=null?capUSD:precioUSD, finalMXN=finalUSD!=null&&tc>0?finalUSD*tc:null;
+    const margenReal=finalMXN>0?1-R.comisionVenta-costo/finalMXN:null;
+    return {Q,k,matMXN,conv,suajeU,extrasMXN,gastosOp,fin,costo,precio,precioUSD,capUSD,finalUSD,margenReal,
+      bajoPiso:capUSD!=null&&piso!=null&&finalMXN<piso-1e-9, bajoEq:capUSD!=null&&eq!=null&&finalMXN<eq-1e-9,piso,eq,
+      minPza,horas:minPza*Q/60,totalMXN:finalMXN!=null?finalMXN*Q:null,placas};
   });
   return {piezas,ops,matUSD,extrasMXN,suajeMXN,amort,margen,niveles,tc,incompleto:piezas.some(p=>!p.ok)||!piezas.length};
 }
@@ -1713,6 +1719,8 @@ function secCotizador(R){
       ${col("Costo total por pieza",n=>fMXN(n.costo),"sub")}
       ${col(`Precio sugerido MXN <span class="hint">(margen ${fPct(C.margen)})</span>`,n=>n.precio==null?'—':fMXN(n.precio),"total")}
       ${col("Precio sugerido USD",n=>n.precioUSD==null?'—':`<b>${fUSD(n.precioUSD)}</b>`,"total")}
+      <tr class="total"><td class="l">Precio al cliente USD <span class="hint">(captúralo si lo fijas tú; vacío = sugerido)</span></td>${C.niveles.map(n=>`<td>${inp(`${pth}.pc${n.k+1}`,{ph:n.precioUSD==null?"":String(Math.round(n.precioUSD*100)/100)})}</td>`).join("")}</tr>
+      ${col("Margen real con el precio al cliente",n=>n.margenReal==null?'—':`<span style="color:${n.bajoPiso?'var(--red)':(n.margenReal<C.margen-1e-9?'var(--amber)':'var(--green)')}">${fPct(n.margenReal)}</span>${n.bajoPiso?' <b style="color:var(--red)">bajo piso</b>':(n.bajoEq?' <b style="color:var(--amber)">pierde</b>':'')}`)}
       ${col("Precio de equilibrio USD",n=>n.eq==null||!(C.tc>0)?'—':fUSD(n.eq/C.tc))}
       ${col("Precio piso USD (sólo costo variable)",n=>n.piso==null||!(C.tc>0)?'—':fUSD(n.piso/C.tc))}
       ${col("Total del pedido USD",n=>n.totalMXN==null||!(C.tc>0)?'—':fUSD(n.totalMXN/C.tc))}
@@ -1722,7 +1730,8 @@ function secCotizador(R){
     :`<div class="note">Captura al menos un volumen para ver el precio.</div>`;
   return head("Cotizador","COTIZACIÓN GENERAL · "+escapeHtml(cot.folio),lead)+sel
   +`<div class="hero">
-      ${hcard("Precio sugerido",N1&&N1.precioUSD!=null?fUSD(N1.precioUSD):"—",N1?`por pieza en ${fN(N1.Q,0)} pzas`:"captura volumen","",true)}
+      ${N1&&N1.capUSD!=null?hcard("Precio al cliente",fUSD(N1.capUSD),`capturado · margen ${fPct(N1.margenReal)} · sugerido ${N1.precioUSD!=null?fUSD(N1.precioUSD):"—"}`,N1.bajoPiso?"r":"",true)
+        :hcard("Precio sugerido",N1&&N1.precioUSD!=null?fUSD(N1.precioUSD):"—",N1?`por pieza en ${fN(N1.Q,0)} pzas`:"captura volumen","",true)}
       ${hcard("Costo por pieza",N1?fMXN(N1.costo):"—",N1?`${fN(N1.minPza,1)} min-persona por pieza`:"")}
       ${hcard("Material por pieza",fUSD(C.matUSD),C.piezas.length+" pieza(s) · "+(C.incompleto?"falta material":"completo"),C.incompleto?"a":"v")}
       ${hcard("Tipo de cambio",fN(C.tc,4),"del mes de trabajo · "+escapeHtml(nombreMes(periodoKey())))}
@@ -1762,7 +1771,7 @@ function secCotizador(R){
       <div class="hint" style="padding:6px 12px">Los tiempos de cada tipo de corte se ajustan abajo en <b>Parámetros del cotizador</b>. La tarifa por hora es la del centro de costo del mes de trabajo (mano de obra + indirectos).</div></div></div>
     <div class="card" style="margin-top:16px"><h3>Precio por volumen</h3><div class="pad">${res}
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><button class="btn primary" data-click="cqPDF()">Descargar PDF para el cliente</button>${puedeEditar()?`<button class="btn" data-click="cqAlCatalogo()">Crear inserto en Costeo de placas</button>`:''}</div>
-      <div class="note" style="margin-top:8px">Precio sugerido = costo total ÷ (1 − margen − comisión). El <b>precio piso</b> sólo cubre material, extras, suaje y energía de proceso: abajo de él cada pieza pierde. El PDF para el cliente lleva tu logo, los datos de contacto de ambos, el producto, las piezas y el precio por volumen; no muestra costos ni márgenes. Al crear el inserto se copian las piezas, los materiales (máximo 3), el precio del primer volumen y los tiempos a la Ruta de proceso.</div></div></div>
+      <div class="note" style="margin-top:8px">Precio sugerido = costo total ÷ (1 − margen − comisión). El <b>precio piso</b> sólo cubre material, extras, suaje y energía de proceso: abajo de él cada pieza pierde. El PDF para el cliente lleva tu logo, los datos de contacto de ambos, el producto, las piezas y el precio por volumen; no muestra costos ni márgenes. Si capturas el <b>precio al cliente</b>, ese es el que sale en el PDF y el que pasa al catálogo; si lo dejas vacío se usa el sugerido. Al crear el inserto se copian las piezas, los materiales (máximo 3), el precio del primer volumen y los tiempos a la Ruta de proceso.</div></div></div>
     ${cqParamsHTML()}`;
 }
 function cqParamsHTML(){
@@ -3405,7 +3414,7 @@ const app={
     if(!window.jspdf||!window.jspdf.jsPDF){alert("No se pudo cargar la librería de PDF. Revisa tu conexión e inténtalo de nuevo.");return;}
     const i=cqActual(); if(i<0) return; const cot=S.cotizaciones[i];
     const R=computeAt(periodoKey()); const C=cqCalc(cot,R);
-    if(!C.niveles.length||C.niveles.some(n=>n.precioUSD==null)){ toast("Captura volúmenes y material completos antes de generar el PDF"); return; }
+    if(!C.niveles.length||C.niveles.some(n=>n.finalUSD==null)){ toast("Captura volúmenes y material completos antes de generar el PDF"); return; }
     if(C.incompleto){ toast("Hay piezas sin material o medidas: complétalas antes de generar el PDF"); return; }
     try{
       const {jsPDF}=window.jspdf; const doc=new jsPDF({orientation:"portrait",unit:"pt",format:"letter"});
@@ -3439,7 +3448,7 @@ const app={
         headStyles:{fillColor:azul,textColor:255,fontStyle:"bold"},columnStyles:{3:{halign:"right"}}});
       y=doc.lastAutoTable.finalY+12;
       // Precios
-      const filas=C.niveles.map(n=>[fN(n.Q,0)+" pzas",fUSD(n.precioUSD),fUSD(n.precioUSD*n.Q)]);
+      const filas=C.niveles.map(n=>[fN(n.Q,0)+" pzas",fUSD(n.finalUSD),fUSD(n.finalUSD*n.Q)]);
       doc.autoTable({head:[["Volumen","Precio unitario (USD)","Importe (USD)"]],body:filas,startY:y,margin:{left:M,right:M},
         styles:{font:"helvetica",fontSize:11,cellPadding:7,lineColor:[221,227,232],lineWidth:.5,textColor:[24,36,48]},
         headStyles:{fillColor:azul,textColor:255,fontStyle:"bold"},columnStyles:{0:{fontStyle:"bold"},1:{halign:"right",fontStyle:"bold"},2:{halign:"right"}}});
@@ -3500,9 +3509,9 @@ const app={
       let k=slots.findIndex(s=>s.key===key); if(k<0){ if(slots.length>=3) return -1; slots.push({key,slot:p.M.cat?{nombre:p.M.nombre}:{nombre:(p.fam||"Material")+" (cotización "+cot.folio+")",precio:p.M.precio,largo:p.M.largo,ancho:p.M.ancho,grosor:p.M.grosor}}); k=slots.length-1; } return k; };
     const piezas=[]; for(const p of C.piezas){ const k=idxDe(p); if(k<0){ toast("El inserto admite máximo 3 materiales distintos"); return; }
       piezas.push({comp:p.desc||"Extra",m1:num(p.L)||null,m2:num(p.A)||null,grosor:p.M.bloque?(num(p.G)||null):null,mat:k+1,cant:num(p.cant)||1,piezasManual:null,s1:null,s2:null}); }
-    askConfirm(`¿Crear el inserto <b>${escapeHtml(np)}</b> en Costeo de placas con ${piezas.length} pieza(s), ${slots.length} material(es)${N1&&N1.precioUSD!=null?` y precio de ${fUSD(N1.precioUSD)} (volumen de ${fN(N1.Q,0)} pzas)`:""}?`,()=>{
+    askConfirm(`¿Crear el inserto <b>${escapeHtml(np)}</b> en Costeo de placas con ${piezas.length} pieza(s), ${slots.length} material(es)${N1&&N1.finalUSD!=null?` y precio de ${fUSD(N1.finalUSD)} (volumen de ${fN(N1.Q,0)} pzas)`:""}?`,()=>{
       const mats=slots.map(s=>s.slot); while(mats.length<3) mats.push({});
-      S.inserts.push({id:np,cliente:cot.cliente||null,q25:null,q26:N1&&N1.precioUSD!=null?Math.round(N1.precioUSD*10000)/10000:null,diseno:{materiales:mats,piezas}});
+      S.inserts.push({id:np,cliente:cot.cliente||null,q25:null,q26:N1&&N1.finalUSD!=null?Math.round(N1.finalUSD*10000)/10000:null,diseno:{materiales:mats,piezas}});
       const porCe={}; C.ops.forEach(o=>{ const ce=o.cfg.ce||CENTRO_PROD; const g=porCe[ce]||(porCe[ce]={prep:0,min:0}); g.prep+=o.prep; g.min+=o.min; });
       const ces=Object.keys(porCe); if(!ces.length) S.ruta.push(...stdRutaOps(np));
       ces.forEach((ce,j)=>S.ruta.push({ins:np,op:10*(j+1),proc:CENTRO_PROD,ce,prep:Math.round(porCe[ce].prep*100)/100,lote:N1?N1.Q:1,minMO:Math.round(porCe[ce].min*1000)/1000,minMaq:null,nop:1,retrab:0,merma:0}));
