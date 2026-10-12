@@ -1741,8 +1741,8 @@ function secCotizador(R){
       <button class="rowbtn" data-click="cqAddOp()">+ Agregar corte</button>
       <div class="hint" style="padding:6px 12px">Los tiempos de cada tipo de corte se ajustan abajo en <b>Parámetros del cotizador</b>. La tarifa por hora es la del centro de costo del mes de trabajo (mano de obra + indirectos).</div></div></div>
     <div class="card" style="margin-top:16px"><h3>Precio por volumen</h3><div class="pad">${res}
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">${puedeEditar()?`<button class="btn primary" data-click="cqAlCatalogo()">Crear inserto en Costeo de placas</button>`:''}</div>
-      <div class="note" style="margin-top:8px">Precio sugerido = costo total ÷ (1 − margen − comisión). El <b>precio piso</b> sólo cubre material, extras, suaje y energía de proceso: abajo de él cada pieza pierde. Al crear el inserto se copian las piezas, los materiales (máximo 3), el precio del primer volumen y los tiempos a la Ruta de proceso.</div></div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><button class="btn primary" data-click="cqPDF()">Descargar PDF para el cliente</button>${puedeEditar()?`<button class="btn" data-click="cqAlCatalogo()">Crear inserto en Costeo de placas</button>`:''}</div>
+      <div class="note" style="margin-top:8px">Precio sugerido = costo total ÷ (1 − margen − comisión). El <b>precio piso</b> sólo cubre material, extras, suaje y energía de proceso: abajo de él cada pieza pierde. El PDF para el cliente lleva tu logo, las piezas, los procesos y el precio por volumen; no muestra costos ni márgenes. Al crear el inserto se copian las piezas, los materiales (máximo 3), el precio del primer volumen y los tiempos a la Ruta de proceso.</div></div></div>
     ${cqParamsHTML()}`;
 }
 function cqParamsHTML(){
@@ -3381,6 +3381,60 @@ const app={
   setSensMetric(m){sensMetric=m;renderSection("dashboard");},
   setRutaFilter(v){rutaFilter=v;renderSection("ruta");},
   addEmp(){S.empleados.push({puesto:"Nuevo puesto",tipo:"Directa",centro:"Corte",period:"Semanal",sueldo:null,n:1,uniformes:0,capacitacion:0,ausent:0});save();renderSection("mano");},
+  cqPDF(){
+    if(!window.jspdf||!window.jspdf.jsPDF){alert("No se pudo cargar la librería de PDF. Revisa tu conexión e inténtalo de nuevo.");return;}
+    const i=cqActual(); if(i<0) return; const cot=S.cotizaciones[i];
+    const R=computeAt(periodoKey()); const C=cqCalc(cot,R);
+    if(!C.niveles.length||C.niveles.some(n=>n.precioUSD==null)){ toast("Captura volúmenes y material completos antes de generar el PDF"); return; }
+    if(C.incompleto){ toast("Hay piezas sin material o medidas: complétalas antes de generar el PDF"); return; }
+    try{
+      const {jsPDF}=window.jspdf; const doc=new jsPDF({orientation:"portrait",unit:"pt",format:"letter"});
+      const W=612, M=48, azul=[16,40,64];
+      try{ const ls=document.getElementById('brandLogo'); if(ls&&ls.src) doc.addImage(ls.src,'PNG',M,34,96,75); }catch(e){}
+      doc.setFont("helvetica","bold");doc.setFontSize(20);doc.setTextColor(...azul);doc.text("COTIZACIÓN",W-M,58,{align:"right"});
+      doc.setFont("helvetica","normal");doc.setFontSize(10);doc.setTextColor(70,80,90);
+      const f=cot.fecha?new Date(cot.fecha+"T12:00:00"):new Date(); const vm=num(S.control.vigenciaMeses)||1;
+      const vence=new Date(f); vence.setMonth(vence.getMonth()+vm);
+      const fd=d=>d.toLocaleDateString("es-MX",{day:"2-digit",month:"long",year:"numeric"});
+      doc.text("Folio: "+cot.folio,W-M,76,{align:"right"}); doc.text("Fecha: "+fd(f),W-M,90,{align:"right"}); doc.text("Vigencia: hasta el "+fd(vence),W-M,104,{align:"right"});
+      doc.setDrawColor(...azul); doc.setLineWidth(1.5); doc.line(M,122,W-M,122);
+      let y=144;
+      doc.setFont("helvetica","bold");doc.setFontSize(9);doc.setTextColor(120,130,140); doc.text("CLIENTE",M,y); doc.text("PRODUCTO",W/2,y);
+      doc.setFont("helvetica","normal");doc.setFontSize(11);doc.setTextColor(24,36,48);
+      const cli=doc.splitTextToSize(cot.cliente||"—",W/2-M-10), prod=doc.splitTextToSize([cot.desc||cot.estilo||"Inserto de protección",cot.np?("No. de parte: "+cot.np):""].filter(Boolean).join("\n"),W/2-M);
+      doc.text(cli,M,y+16); doc.text(prod,W/2,y+16); y+=16+Math.max(cli.length,prod.length)*14+14;
+      // Especificación
+      const piezas=C.piezas.map(p=>[p.desc||"Pieza",p.M.cat?p.M.nombre:((p.fam||"Material")+(p.M.grosor>0?" "+toFrac(p.M.grosor)+'"':"")),
+        `${toFrac(num(p.L))} × ${toFrac(num(p.A))}${p.M.bloque&&num(p.G)>0?" × "+toFrac(num(p.G)):(p.M.grosor>0&&!p.M.bloque?" × "+toFrac(p.M.grosor):"")} in`,fN(num(p.cant),0)]);
+      doc.autoTable({head:[["Pieza","Material","Medidas (L × A × grosor)","Cant. por inserto"]],body:piezas,startY:y,margin:{left:M,right:M},
+        styles:{font:"helvetica",fontSize:9,cellPadding:5,lineColor:[221,227,232],lineWidth:.5,textColor:[24,36,48]},
+        headStyles:{fillColor:azul,textColor:255,fontStyle:"bold"},columnStyles:{3:{halign:"right"}}});
+      y=doc.lastAutoTable.finalY+10;
+      const procesos=[...new Set(C.ops.map(o=>o.c).filter(Boolean))];
+      if(procesos.length){ doc.setFontSize(9);doc.setTextColor(90,100,110); const t=doc.splitTextToSize("Procesos: "+procesos.join(", ")+".",W-2*M); doc.text(t,M,y+8); y+=t.length*12+14; }
+      // Precios
+      const filas=C.niveles.map(n=>[fN(n.Q,0)+" pzas",fUSD(n.precioUSD),fUSD(n.precioUSD*n.Q)]);
+      doc.autoTable({head:[["Volumen","Precio unitario (USD)","Importe (USD)"]],body:filas,startY:y,margin:{left:M,right:M},
+        styles:{font:"helvetica",fontSize:11,cellPadding:7,lineColor:[221,227,232],lineWidth:.5,textColor:[24,36,48]},
+        headStyles:{fillColor:azul,textColor:255,fontStyle:"bold"},columnStyles:{0:{fontStyle:"bold"},1:{halign:"right",fontStyle:"bold"},2:{halign:"right"}}});
+      y=doc.lastAutoTable.finalY+18;
+      const cond=["Precios en dólares estadounidenses (USD), más IVA.",
+        `Tipo de cambio de referencia: ${fN(C.tc,4)} MXN/USD. Si se factura en pesos se usará el tipo de cambio del día de la factura.`,
+        `Vigencia de la cotización: ${vm} ${vm===1?"mes":"meses"} a partir de la fecha de emisión.`,
+        "Precio por pieza según el volumen indicado por pedido."];
+      if(!C.amort&&num(cot.suajeCosto)>0) cond.unshift(`Herramental (suaje): cargo único de ${fUSD(num(cot.suajeCosto))} más IVA, se factura con el primer pedido.`);
+      else if(num(cot.suajeCosto)>0) cond.push("El costo del herramental (suaje) está incluido en el precio por pieza.");
+      if(cot.notas) cond.push(String(cot.notas));
+      doc.setFont("helvetica","bold");doc.setFontSize(10);doc.setTextColor(...azul); doc.text("Condiciones",M,y); y+=14;
+      doc.setFont("helvetica","normal");doc.setFontSize(9.5);doc.setTextColor(50,60,70);
+      cond.forEach(c=>{ const t=doc.splitTextToSize("• "+c,W-2*M); if(y+t.length*13>720){ doc.addPage(); y=60; } doc.text(t,M,y); y+=t.length*13+3; });
+      const tot=doc.internal.getNumberOfPages();
+      for(let p=1;p<=tot;p++){ doc.setPage(p); doc.setDrawColor(221,227,232); doc.setLineWidth(.5); doc.line(M,748,W-M,748);
+        doc.setFont("helvetica","normal");doc.setFontSize(8);doc.setTextColor(140,150,160);
+        doc.text("North Foam, S. de R.L. de C.V. · Mexicali, B.C.",M,762); doc.text("Cotización "+cot.folio+" · Página "+p+" de "+tot,W-M,762,{align:"right"}); }
+      saveFile("Cotizacion_"+cot.folio+(cot.cliente?"_"+String(cot.cliente).replace(/[^A-Za-z0-9]+/g,"_").slice(0,30):"")+".pdf", doc.output("blob"));
+    }catch(e){console.error(e);alert("No se pudo generar el PDF.");}
+  },
   cqSelect(v){ cqSel=v; renderSection("cotizador"); },
   cqNueva(){ ensureCotizador(); const n=S.cotizaciones.reduce((a,c)=>{ const m=/(\d+)$/.exec(c.folio||""); return Math.max(a,m?+m[1]:0); },0)+1;
     const folio="NF-C-"+String(n).padStart(4,"0"); const pe=(S.catalogo||[]).find(m=>famDe(m.nombre)==="Polietileno (PE)");
