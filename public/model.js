@@ -2542,18 +2542,41 @@ function secDashboard(R){
   const bajoObj=R.integral.filter(i=>i.complete&&i.margenReal<i.margenObj).length;
   const bajoCosto=R.integral.filter(i=>i.complete&&i.utilidad<0).length;
   // Segundo hero adaptativo
+  const nComp=R.integral.filter(i=>i.complete&&i.vol>0).length, nVol=R.integral.filter(i=>i.vol>0).length;
+  const tMargen=tipTxt("Margen ponderado = utilidad mensual ÷ ingreso mensual de los insertos completos (con ruta y precio) que tienen volumen.",
+    R.margenPond!=null?`${fMXN0(R.utilMesComp)} ÷ ${fMXN0(R.ingresoMesComp)} = ${fPct(R.margenPond)} (${nComp} inserto(s)).`:"",
+    `Objetivo: ${fPct(num(S.control.margenObj)+f("deltaMargen"))} (Parámetros y costo financiero${f("deltaMargen")?" + ajuste del escenario":""}).`,
+    "Volumen: Costeo mensual del mes de trabajo.");
   const margenCard = R.margenPond!=null
-    ? hcard("Margen ponderado", fPct(R.margenPond), (R.margenPond>=(num(S.control.margenObj)+f("deltaMargen"))?"cumple objetivo":"bajo el objetivo"), R.margenPond<0?"r":(R.margenPond<(num(S.control.margenObj))?"a":"v"))
-    : hcard("Margen ponderado", "—", "requiere ruta y volumen", "g");
+    ? hcard("Margen ponderado", fPct(R.margenPond), (R.margenPond>=(num(S.control.margenObj)+f("deltaMargen"))?"cumple objetivo":"bajo el objetivo"), R.margenPond<0?"r":(R.margenPond<(num(S.control.margenObj))?"a":"v"),false,tMargen)
+    : hcard("Margen ponderado", "—", "requiere ruta y volumen", "g",false,tMargen);
   const ingresoCard = R.anyVol
-    ? hcard("Ingreso mensual", fMXN0(R.ingresoMesTot), "de los insertos con volumen", "")
-    : hcard("Contribución unit. prom.", fMXN(promedio(R.integral.map(i=>i.contribUnit))), "precio − costo variable", "");
+    ? hcard("Ingreso mensual", fMXN0(R.ingresoMesTot), "de los insertos con volumen", "",false,tipTxt("Suma de precio al cliente (MXN) × volumen del mes de cada inserto.",`${nVol} inserto(s) con volumen en Costeo mensual.`,"El precio en USD se convierte al tipo de cambio del mes ("+fN(R.tc,4)+")."))
+    : hcard("Contribución unit. prom.", fMXN(promedio(R.integral.map(i=>i.contribUnit))), "precio − costo variable", "",false,tipTxt("Promedio por pieza de todos los insertos del catálogo:","precio al cliente − costo variable (material, energía de proceso, consumibles, financiamiento, garantías y comisión).","Aparece porque todavía no hay volúmenes en Costeo mensual."));
+  const tUtil=tipTxt("Suma de (precio − costo integral) × volumen de los insertos completos con volumen.",
+    R.anyVol?`Ingreso ${fMXN0(R.ingresoMesComp)} − costo integral ${fMXN0(R.costoMesComp)} = ${fMXN0(R.utilMesComp)}.`:"",
+    "Costo integral = material + conversión (mano de obra, energía, maquinaria e indirectos por hora de ruta) + gastos de operación y financieros.",
+    nVol>nComp?`${nVol-nComp} inserto(s) con volumen no entran porque les falta ruta o precio.`:"");
   const utilCard = R.anyVol && R.utilMesComp
-    ? hcard("Utilidad mensual", fMXN0(R.utilMesComp), "insertos completos con volumen", R.utilMesComp<0?"r":"v")
-    : hcard("Utilidad mensual", "—", "captura volumen y ruta", "g");
+    ? hcard("Utilidad mensual", fMXN0(R.utilMesComp), "insertos completos con volumen", R.utilMesComp<0?"r":"v",false,tUtil)
+    : hcard("Utilidad mensual", "—", "captura volumen y ruta", "g",false,tUtil);
+  const tOciosa=tipTxt("Horas de capacidad práctica que no se usaron × tasa de planta. Es costo que no se reparte en los insertos.",
+    R.ociosa!=null?`(${fN(R.capPractica,0)} h − ${fN(R.horasUsadas,0)} h utilizadas) = ${fN(R.ociosa,0)} h × ${R.tasaPlanta==null?"—":fMXN(R.tasaPlanta)}/h = ${fMXN0(R.ociosaCosto)}.`:"Captura las horas utilizadas del mes en Capacidad.");
   const ociosaCard = R.ociosaCosto!=null
-    ? hcard("Costo de capacidad ociosa", fMXN0(R.ociosaCosto), fN(R.ociosa,0)+" h/mes sin absorber", R.ociosa>0?"a":"v")
-    : hcard("Capacidad ociosa", "—", "captura horas utilizadas", "g");
+    ? hcard("Costo de capacidad ociosa", fMXN0(R.ociosaCosto), fN(R.ociosa,0)+" h/mes sin absorber", R.ociosa>0?"a":"v",false,tOciosa)
+    : hcard("Capacidad ociosa", "—", "captura horas utilizadas", "g",false,tOciosa);
+  const tPool=tipTxt("Costo mensual de la planta que se reparte en las horas productivas:",
+    `• Mano de obra directa: ${fMXN0(R.moDirecta)} (Mano de obra, puestos tipo Directa)`,
+    `• Energía eléctrica: ${fMXN0(R.energiaSubtotal)} (Energía y pool: ${num(valPeriodo("energia","reciboReal",S.energia.reciboReal))>0?"recibo real":"estimado por cargas"})`,
+    `• Maquinaria: ${fMXN0(R.maqTotal)} (depreciación, mantenimiento y seguro)`,
+    `• Indirectos fabriles: ${fMXN0(R.indFabril)} (Indirectos: fijos ${fMXN0(R.indFijo)}, variables ${fMXN0(R.indVar)}, directos ${fMXN0(R.indDir)})`,
+    `= ${fMXN0(R.pool)}`,"No incluye administración, comercial, logística ni financiero: esos son gastos de operación.");
+  const capv=c=>num(valPeriodo("capacidad",c,S.capacidad[c]));
+  const tCap=tipTxt("Horas productivas del mes (sección Capacidad):",
+    `(${fN(capv("dias"),0)} días − ${fN(capv("festivos"),0)} festivos − ${fN(capv("vacaciones"),0)} vacaciones) × ${fN(capv("turnos"),0)} turno(s) × (${fN(capv("horas"),2)} h − ${fN(capv("comida"),2)} h de comida) = ${fN(R.capBase,0)} h`,
+    `− ausentismo ${fPct(capv("ausentismo"))} − mantenimiento ${fN(capv("mantenimiento"),0)} h − setups ${fN(capv("setups"),0)} h − paros ${fN(capv("paros"),0)} h`,
+    `= ${fN(R.capPractica,0)} h/mes`,
+    util==null?"Utilización: captura las horas utilizadas.":`Utilización = ${fN(R.horasUsadas,0)} h utilizadas ÷ ${fN(R.capPractica,0)} h = ${fPct(util)}.`);
 
   return `
     <div class="exhead">
@@ -2568,11 +2591,14 @@ function secDashboard(R){
     <p class="lead">Indicadores para toma de decisiones del <b>mes de trabajo</b> (${escapeHtml(nombreMes(periodoKey()))}). Aquí se elige el mes con el que trabajan todas las secciones (Costeo mensual, Facturas, Compras, Producción, Precio mínimo y Variaciones).</p>
 
     <div class="hero">
-      ${hcard("Tipo de cambio "+(S.control.tcFecha?("· "+escapeHtml(String(S.control.tcFecha))):"(MXN/USD)"), "$"+fN(R.tc,4), "FIX efectivo", "", true)}
-      ${hcard("Pool de manufactura", fMXN0(R.pool), "costo mensual a absorber")}
-      ${hcard("Tasa de planta", R.tasaPlanta==null?"—":fMXN(R.tasaPlanta), "por hora productiva")}
-      ${hcard("Capacidad práctica", fN(R.capPractica,0)+' <small>h/mes</small>', util==null?"utilización sin capturar":("utilización "+fPct(util)), util==null?"g":(util<0.7?"a":"v"))}
-      ${hcard("Insertos costeados", ready+" / "+total, ready<total?(total-ready)+" requieren ruta":"todos completos", readyLuz)}
+      ${hcard("Tipo de cambio "+(S.control.tcFecha?("· "+escapeHtml(String(S.control.tcFecha))):"(MXN/USD)"), "$"+fN(R.tc,4), "FIX efectivo", "", true,
+        tipTxt(`Tipo de cambio base ${fN(num(S.control.tcBase),4)} (Parámetros: ${S.control.tcAuto?"FIX de Banxico automático":"capturado"}${S.control.tcFecha?", "+S.control.tcFecha:""})`,`× factor del escenario "${esc()}" ${fN(R.factorTC,3)} = ${fN(R.tc,4)}.`,"Convierte a pesos los precios y materiales en USD."))}
+      ${hcard("Pool de manufactura", fMXN0(R.pool), "costo mensual a absorber","",false,tPool)}
+      ${hcard("Tasa de planta", R.tasaPlanta==null?"—":fMXN(R.tasaPlanta), "por hora productiva","",false,
+        tipTxt("Pool de manufactura ÷ capacidad práctica:",`${fMXN0(R.pool)} ÷ ${fN(R.capPractica,0)} h = ${R.tasaPlanta==null?"—":fMXN(R.tasaPlanta)} por hora.`,"Cada centro de costo tiene su propia tarifa en Centros de costo."))}
+      ${hcard("Capacidad práctica", fN(R.capPractica,0)+' <small>h/mes</small>', util==null?"utilización sin capturar":("utilización "+fPct(util)), util==null?"g":(util<0.7?"a":"v"),false,tCap)}
+      ${hcard("Insertos costeados", ready+" / "+total, ready<total?(total-ready)+" requieren ruta":"todos completos", readyLuz,false,
+        tipTxt("Insertos del catálogo que ya tienen material, ruta de proceso con tiempos y precio, entre el total del catálogo.",ready<total?"Los que faltan se completan en Ruta de proceso y Costeo de placas.":""))}
     </div>
     <div class="hero">
       ${margenCard}${ingresoCard}${utilCard}${ociosaCard}
@@ -2586,10 +2612,25 @@ function secDashboard(R){
       <div class="card full"><h3>Decisiones sugeridas</h3><ul class="insights">${insights(R,bajoObj,bajoCosto)}</ul></div>
     </div>`;
 }
-function hcard(k,v,d,luz="",accent=false){
-  return `<div class="hcard ${accent?'accent':''} ${luz}">${(!accent&&luz)?'<div class="bar"></div>':''}
-    <div class="k">${k}</div><div class="v mono">${v}</div>${d?`<div class="d">${d}</div>`:''}</div>`;
+function hcard(k,v,d,luz="",accent=false,tip=""){
+  return `<div class="hcard ${accent?'accent':''} ${luz}"${tip?` data-tip="${escapeHtml(tip)}" style="cursor:help"`:''}>${(!accent&&luz)?'<div class="bar"></div>':''}
+    <div class="k">${k}${tip?' <span style="opacity:.55;font-size:11px">ⓘ</span>':''}</div><div class="v mono">${v}</div>${d?`<div class="d">${d}</div>`:''}</div>`;
 }
+// Ayuda al pasar el cursor: cualquier elemento con data-tip muestra de dónde sale el número
+function tipTxt(...l){ return l.filter(x=>x!=null&&x!==false&&x!=="").join("\n"); }
+function trTip(tip){ return tip?` data-tip="${escapeHtml(tip)}" style="cursor:help"`:""; }
+(function(){
+  if(typeof document==="undefined"||window.__tipInit) return; window.__tipInit=true;
+  let box=null, cur=null;
+  const mk=()=>{ box=document.createElement("div"); Object.assign(box.style,{position:"fixed",zIndex:"9999",maxWidth:"380px",padding:"10px 12px",borderRadius:"8px",
+    background:"#16222e",color:"#f3f6f9",font:"12.5px/1.45 'IBM Plex Sans',sans-serif",whiteSpace:"pre-line",boxShadow:"0 6px 22px rgba(0,0,0,.28)",pointerEvents:"none",display:"none"}); document.body.appendChild(box); };
+  const place=e=>{ if(!box||box.style.display==="none") return; const w=box.offsetWidth,h=box.offsetHeight; let x=e.clientX+14,y=e.clientY+16;
+    if(x+w>window.innerWidth-8) x=Math.max(8,e.clientX-w-14); if(y+h>window.innerHeight-8) y=Math.max(8,e.clientY-h-14); box.style.left=x+"px"; box.style.top=y+"px"; };
+  document.addEventListener("mouseover",e=>{ const t=e.target&&e.target.closest?e.target.closest("[data-tip]"):null; if(t===cur) return; cur=t;
+    if(!t){ if(box) box.style.display="none"; return; } if(!box) mk(); box.textContent=t.getAttribute("data-tip"); box.style.display="block"; place(e); });
+  document.addEventListener("mousemove",place);
+  document.addEventListener("scroll",()=>{ if(box) box.style.display="none"; cur=null; },true);
+})();
 function promedio(arr){const v=arr.filter(x=>isFinite(x)); return v.length?v.reduce((a,b)=>a+b,0)/v.length:0;}
 function insights(R,bajoObj,bajoCosto){
   const li=[]; const objG=num(S.control.margenObj)+f("deltaMargen");
@@ -2879,16 +2920,21 @@ function panelReal(x,P){
   return `<div class="card full" style="margin-bottom:14px"><h3>Resultado real con las facturas cargadas · ${escapeHtml(P.etiqueta)}</h3><div class="pad">
     <div class="hint" style="margin-bottom:10px">${x.n} factura(s) vigente(s).${x.enCurso?" El mes no ha terminado: es el avance a la fecha contra los gastos fijos del mes completo.":""}</div>
     <div class="hero" style="margin-bottom:6px">
-      ${hcard("Ventas facturadas",fMXN0(x.ventas),"sin IVA","",true)}
-      ${hcard("Costo variable de lo vendido",fMXN0(x.cv),x.esMes&&Math.abs(x.ajusteFoam)>0.5?("incluye "+(x.ajusteFoam>0?"+":"")+fMXN0(x.ajusteFoam)+" de foam real"):"material, energía de proceso, consumibles y comisión")}
-      ${hcard("Lo que queda para gastos fijos",fMXN0(x.contrib),x.razon==null?"":fPct(x.razon)+" de cada peso vendido",x.contrib>=0?"":"r")}
-      ${hcard("Gastos fijos "+(x.esMes?"del mes":"del periodo"),fMXN0(x.fijos),x.fijosReal?"con los gastos reales en XML":"del presupuesto del mes")}
+      ${hcard("Ventas facturadas",fMXN0(x.ventas),"sin IVA","",true,tipTxt("Subtotal sin IVA de las facturas de venta vigentes del periodo (Facturas de venta).","Las notas de crédito restan; las canceladas no cuentan; las facturas en USD se convierten con su tipo de cambio.",`${x.n} factura(s) · ${fN(x.F.piezas,0)} piezas.`))}
+      ${hcard("Costo variable de lo vendido",fMXN0(x.cv),x.esMes&&Math.abs(x.ajusteFoam)>0.5?("incluye "+(x.ajusteFoam>0?"+":"")+fMXN0(x.ajusteFoam)+" de foam real"):"material, energía de proceso, consumibles y comisión","",false,
+        tipTxt(`• Insertos facturados: ${fMXN0(x.partes.reduce((a,p)=>a+p.cv,0))} (piezas × costo variable estándar + comisión)`,x.ventaSin?`• Conceptos sin inserto: ${fMXN0(x.cvSin)} (estimado con el margen del presupuesto)`:"",x.esMes?`• Ajuste por foam real: ${fMXN0(x.ajusteFoam)} (precio de compra de 3 meses y rechazos, como en Variaciones)`:"",`= ${fMXN0(x.cv)}`))}
+      ${hcard("Lo que queda para gastos fijos",fMXN0(x.contrib),x.razon==null?"":fPct(x.razon)+" de cada peso vendido",x.contrib>=0?"":"r",false,tipTxt("Ventas facturadas − costo variable de lo vendido.",`${fMXN0(x.ventas)} − ${fMXN0(x.cv)} = ${fMXN0(x.contrib)}.`))}
+      ${hcard("Gastos fijos "+(x.esMes?"del mes":"del periodo"),fMXN0(x.fijos),x.fijosReal?"con los gastos reales en XML":"del presupuesto del mes","",false,
+        tipTxt("Mismos conceptos que los gastos fijos del presupuesto (manufactura sin energía de proceso ni consumibles, administración, comercial, logística, financiero y otros).",x.fijosReal?"Con los gastos y la nómina reales de los XML de Compras, gastos y nómina del mes.":"Todavía no hay XML de gastos del mes: se usan los capturados."))}
     </div>
     <div class="hero" style="margin-bottom:10px">
-      ${hcard(ok?"Utilidad real":"Falta para cubrir los gastos",fMXN0(Math.abs(x.util)),ok?"las ventas ya pagan el costo variable y los gastos fijos":(x.razon>0?"ventas que faltan: "+fMXN0(-x.util/x.razon):"el margen real no alcanza"),ok?"v":"r")}
-      ${hcard("Equilibrio con el margen real",x.pe==null?"—":fMXN0(x.pe),x.avance==null?"":"llevas "+fPct(x.avance)+" del equilibrio",x.avance==null?"g":(x.avance>=1?"v":(x.avance>=0.8?"a":"r")))}
-      ${hcard("Margen real de contribución",x.razon==null?"—":fPct(x.razon),x.razonCat==null?"":"presupuestado "+fPct(x.razonCat),dif==null?"g":(dif>=-0.02?"v":"a"))}
-      ${hcard("Piezas facturadas",fN(x.F.piezas,0),x.partes.length+" inserto(s)")}
+      ${hcard(ok?"Utilidad real":"Falta para cubrir los gastos",fMXN0(Math.abs(x.util)),ok?"las ventas ya pagan el costo variable y los gastos fijos":(x.razon>0?"ventas que faltan: "+fMXN0(-x.util/x.razon):"el margen real no alcanza"),ok?"v":"r",false,
+        tipTxt("Lo que queda para gastos fijos − gastos fijos.",`${fMXN0(x.contrib)} − ${fMXN0(x.fijos)} = ${fMXN0(x.util)}.`,ok?"":"Ventas que faltan = lo que falta ÷ margen real de contribución."))}
+      ${hcard("Equilibrio con el margen real",x.pe==null?"—":fMXN0(x.pe),x.avance==null?"":"llevas "+fPct(x.avance)+" del equilibrio",x.avance==null?"g":(x.avance>=1?"v":(x.avance>=0.8?"a":"r")),false,
+        tipTxt("Gastos fijos ÷ margen real de contribución.",x.pe==null?"":`${fMXN0(x.fijos)} ÷ ${fPct(x.razon)} = ${fMXN0(x.pe)}.`,x.avance==null?"":`Avance = ventas facturadas ÷ equilibrio = ${fPct(x.avance)}.`))}
+      ${hcard("Margen real de contribución",x.razon==null?"—":fPct(x.razon),x.razonCat==null?"":"presupuestado "+fPct(x.razonCat),dif==null?"g":(dif>=-0.02?"v":"a"),false,
+        tipTxt("Lo que queda para gastos fijos ÷ ventas facturadas.",x.razonCat==null?"":`El presupuestado (${fPct(x.razonCat)}) sale de los volúmenes de Costeo mensual.`))}
+      ${hcard("Piezas facturadas",fN(x.F.piezas,0),x.partes.length+" inserto(s)","",false,tipTxt("Suma de cantidades de los conceptos ligados a un inserto en las facturas vigentes (las notas de crédito restan).",x.nSin?`${x.nSin} concepto(s) sin inserto no cuentan piezas.`:""))}
     </div>
     ${dif!=null&&Math.abs(dif)>0.05?`<div class="note" style="margin-bottom:10px;border-color:var(--amber)">El margen real de lo facturado (${fPct(x.razon)}) es ${dif>0?"mayor":"menor"} que el presupuestado (${fPct(x.razonCat)}). Por eso el punto de equilibrio presupuestado de abajo ${dif>0?"sale más alto":"sale más bajo"} que el real. Revisa en <b>Costeo mensual</b> y <b>Precio mínimo</b> el volumen, el costo y el precio de los insertos con más diferencia.</div>`:""}
     <table class="fija"><thead><tr><th class="l" style="width:16%">Inserto</th><th class="l">Cliente</th><th>Piezas</th><th>Venta</th><th>Costo variable</th><th>Le queda</th><th>Margen</th></tr></thead><tbody>
@@ -2909,32 +2955,55 @@ function secPresupuesto(R){
   else {estLuz="r";estTxt="Por debajo del punto de equilibrio";}
   const per = (P.PE!=null&&P.ventas>0)?P.PE/P.ventas:null;
   const X=resultadoReal(R,P);
+  const xm=P.meses>1?` × ${P.meses} meses`:"";
+  const volDe=P.key==="catalogo"?"volúmenes generales del catálogo (Costeo mensual)":("volúmenes de "+P.etiqueta+" en Costeo mensual");
+  const enProc=R.enVar, consum=R.indVar;
+  const TP={
+    ventas:tipTxt("Suma de precio al cliente (MXN) × volumen de cada inserto.",`Volumen: ${volDe}${f("volumen")!==1?" × factor de volumen del escenario "+fN(f("volumen"),2):""}.`,`Tipo de cambio ${fN(R.tc,4)} para los precios en USD.`),
+    mat:tipTxt("Material de cada inserto (placas de foam por pieza con su merma, de Costeo de placas) × volumen.",`= ${fMXN0(P.matMes)}`),
+    otrosVar:tipTxt("Resto del costo variable de cada pieza × volumen:","• energía de proceso (cargas marcadas como de proceso en Energía)","• consumibles (indirectos variables)","• financiamiento de inventario y cartera, garantías y comisión de venta",`= ${fMXN0(P.otrosVar)}`),
+    contrib:tipTxt("Ventas − costo variable (material + otros variables).",P.conVol?`${fMXN0(P.ventas)} − ${fMXN0(P.varMes)} = ${fMXN0(P.contribMes)}; ${fPct(P.ratio)} de cada peso vendido.`:`Sin volúmenes: se usa el margen de contribución promedio del catálogo (${fPct(P.ratio)}).`),
+    gf:tipTxt("Gastos fijos de operación del mes"+(xm?xm:"")+":",
+      `• Manufactura: ${fMXN0(P.gfManuf)} = pool ${fMXN0(R.pool)} − energía de proceso ${fMXN0(enProc)} − consumibles ${fMXN0(consum)}`,
+      `   (MO directa ${fMXN0(R.moDirecta)}, energía ${fMXN0(R.energiaSubtotal-enProc)}, maquinaria ${fMXN0(R.maqTotal)}, indirectos fabriles ${fMXN0(R.indFabril-consum)})`,
+      `• Administración: ${fMXN0(P.gfAdmin)} (nómina ${fMXN0(R.moAdmin)} + indirectos ${fMXN0(R.indAdmin)})`,
+      `• Comercial: ${fMXN0(P.gfComer)} (nómina ${fMXN0(R.moComercial)} + indirectos ${fMXN0(R.indComercial)})`,
+      `• Logística: ${fMXN0(P.gfLog)} (indirectos clasificados Logístico)`,
+      `• Financiero: ${fMXN0(P.gfFin)} (indirectos clasificados Financiero)`,
+      `• Otros gastos fijos: ${fMXN0(P.otros)} (captura en esta sección)`,
+      `= ${fMXN0(P.GFmes)} al mes${xm?" → "+fMXN0(P.GF):""}`,"Salen de Mano de obra, Indirectos, Energía y pool y Maquinaria."),
+    pe:tipTxt("Ventas necesarias para no ganar ni perder:","Gastos fijos ÷ margen de contribución.",P.PE==null?"":`${fMXN0(P.GF)} ÷ ${fPct(P.ratio)} = ${fMXN0(P.PE)}.`),
+    util:tipTxt("Margen de contribución − gastos fijos.",P.utilOper==null?"Captura volúmenes para calcularla.":`${fMXN0(P.contribMes)} − ${fMXN0(P.GF)} = ${fMXN0(P.utilOper)}.`,"Antes de ISR; no incluye IVA."),
+    seg:tipTxt("Qué tanto pueden bajar las ventas antes de llegar al equilibrio:","(ventas − punto de equilibrio) ÷ ventas.",P.margenSeg==null?"":`(${fMXN0(P.ventas)} − ${fMXN0(P.PE)}) ÷ ${fMXN0(P.ventas)} = ${fPct(P.margenSeg)}.`),
+    falt:tipTxt("Ventas adicionales para llegar al punto de equilibrio:","punto de equilibrio − ventas del periodo.",P.faltante==null?"":`${fMXN0(P.PE)} − ${fMXN0(P.ventas)} = ${fMXN0(P.faltante)}.`),
+    estado:tipTxt("Resume la utilidad de operación del presupuesto:","verde = utilidad, ámbar = en equilibrio, rojo = pérdida.")
+  };
 
   const pnl=`<table>
-    <tr><td class="l">Ventas netas mensuales</td><td class="mono val-calc">${P.conVol?fMXN(P.ventas):'<span class="val-pend">captura volúmenes</span>'}</td></tr>
-    <tr><td class="l">(−) Costo variable — material</td><td class="mono val-calc">${P.conVol?'('+fMXN(P.matMes)+')':'—'}</td></tr>
-    <tr><td class="l">(−) Otros costos variables <span class="hint">(energía de proceso, consumibles, financ., garantías, comisión)</span></td><td class="mono val-calc">${P.conVol?'('+fMXN(P.otrosVar)+')':'—'}</td></tr>
-    <tr class="sub"><td class="l">= Margen de contribución${P.conVol?' ('+fPct(P.ratio)+')':''}</td><td class="mono">${P.conVol?fMXN(P.contribMes):'—'}</td></tr>
-    <tr><td class="l">(−) Gastos fijos de operación</td><td class="mono val-calc">(${fMXN(P.GF)})</td></tr>
-    <tr class="total"><td class="l">= Utilidad (pérdida) de operación</td><td class="mono">${P.utilOper==null?'—':fMXN(P.utilOper)}</td></tr>
+    <tr${trTip(TP.ventas)}><td class="l">Ventas netas mensuales</td><td class="mono val-calc">${P.conVol?fMXN(P.ventas):'<span class="val-pend">captura volúmenes</span>'}</td></tr>
+    <tr${trTip(TP.mat)}><td class="l">(−) Costo variable — material</td><td class="mono val-calc">${P.conVol?'('+fMXN(P.matMes)+')':'—'}</td></tr>
+    <tr${trTip(TP.otrosVar)}><td class="l">(−) Otros costos variables <span class="hint">(energía de proceso, consumibles, financ., garantías, comisión)</span></td><td class="mono val-calc">${P.conVol?'('+fMXN(P.otrosVar)+')':'—'}</td></tr>
+    <tr class="sub"${trTip(TP.contrib)}><td class="l">= Margen de contribución${P.conVol?' ('+fPct(P.ratio)+')':''}</td><td class="mono">${P.conVol?fMXN(P.contribMes):'—'}</td></tr>
+    <tr${trTip(TP.gf)}><td class="l">(−) Gastos fijos de operación</td><td class="mono val-calc">(${fMXN(P.GF)})</td></tr>
+    <tr class="total"${trTip(TP.util)}><td class="l">= Utilidad (pérdida) de operación</td><td class="mono">${P.utilOper==null?'—':fMXN(P.utilOper)}</td></tr>
   </table>`;
 
   const gf=`<table>
-    <tr><td class="l">Manufactura (MO directa, energía fija, indirectos fabriles fijos)<div class="hint">No incluye ${fMXN(P.gastoPlantaVar)} de energía de proceso y consumibles: ya van en el costo variable de cada pieza</div></td><td class="mono val-calc">${fMXN(P.gfManuf)}</td></tr>
-    <tr><td class="l">Administración (nómina + indirectos)</td><td class="mono val-calc">${fMXN(P.gfAdmin)}</td></tr>
-    <tr><td class="l">Comercial (nómina + indirectos)</td><td class="mono val-calc">${fMXN(P.gfComer)}</td></tr>
-    <tr><td class="l">Logística</td><td class="mono val-calc">${fMXN(P.gfLog)}</td></tr>
-    <tr><td class="l">Financiero (gastos fijos)</td><td class="mono val-calc">${fMXN(P.gfFin)}</td></tr>
+    <tr${trTip(tipTxt("Pool de manufactura menos lo que ya va en el costo variable de cada pieza:",`MO directa ${fMXN0(R.moDirecta)} (Mano de obra, tipo Directa)`,`+ energía ${fMXN0(R.energiaSubtotal)} − energía de proceso ${fMXN0(enProc)} (Energía y pool)`,`+ maquinaria ${fMXN0(R.maqTotal)}`,`+ indirectos fabriles ${fMXN0(R.indFabril)} − consumibles ${fMXN0(consum)} (Indirectos)`,`= ${fMXN0(P.gfManuf)}`))}><td class="l">Manufactura (MO directa, energía fija, indirectos fabriles fijos)<div class="hint">No incluye ${fMXN(P.gastoPlantaVar)} de energía de proceso y consumibles: ya van en el costo variable de cada pieza</div></td><td class="mono val-calc">${fMXN(P.gfManuf)}</td></tr>
+    <tr${trTip(tipTxt(`Nómina de puestos tipo Administrativa ${fMXN0(R.moAdmin)} (Mano de obra, costo empresa)`,`+ indirectos clasificados Administrativo ${fMXN0(R.indAdmin)} (Indirectos)`,`= ${fMXN0(P.gfAdmin)}`))}><td class="l">Administración (nómina + indirectos)</td><td class="mono val-calc">${fMXN(P.gfAdmin)}</td></tr>
+    <tr${trTip(tipTxt(`Nómina de puestos tipo Comercial ${fMXN0(R.moComercial)} (Mano de obra, costo empresa)`,`+ indirectos clasificados Comercial ${fMXN0(R.indComercial)} (Indirectos)`,`= ${fMXN0(P.gfComer)}`))}><td class="l">Comercial (nómina + indirectos)</td><td class="mono val-calc">${fMXN(P.gfComer)}</td></tr>
+    <tr${trTip(tipTxt("Indirectos clasificados Logístico (fletes, paquetería…)"+(f("flete")!==1?" × factor de flete del escenario "+fN(f("flete"),2):"")+".",`= ${fMXN0(P.gfLog)}`))}><td class="l">Logística</td><td class="mono val-calc">${fMXN(P.gfLog)}</td></tr>
+    <tr${trTip(tipTxt("Indirectos clasificados Financiero (comisiones bancarias, intereses fijos…).","El costo financiero de inventario y cartera va en el costo variable de cada pieza.",`= ${fMXN0(P.gfFin)}`))}><td class="l">Financiero (gastos fijos)</td><td class="mono val-calc">${fMXN(P.gfFin)}</td></tr>
     <tr><td class="l">Otros gastos fijos</td><td>${inp("presupuesto.otrosFijos")}</td></tr>
-    <tr class="total"><td class="l">Total gastos fijos mensuales</td><td class="mono">${fMXN(P.GF)}</td></tr>
+    <tr class="total"${trTip(TP.gf)}><td class="l">Total gastos fijos mensuales</td><td class="mono">${fMXN(P.GF)}</td></tr>
   </table>`;
 
   const be=`<table>
-    <tr class="total"><td class="l">Punto de equilibrio (ventas)</td><td class="mono">${P.PE==null?'<span class="val-pend">captura precios/volúmenes</span>':fMXN(P.PE)}</td></tr>
-    <tr><td class="l">Margen de contribución usado</td><td class="mono val-calc">${fPct(P.ratio)}${P.conVol?' (ponderado)':' (promedio · sin volumen)'}</td></tr>
+    <tr class="total"${trTip(TP.pe)}><td class="l">Punto de equilibrio (ventas)</td><td class="mono">${P.PE==null?'<span class="val-pend">captura precios/volúmenes</span>':fMXN(P.PE)}</td></tr>
+    <tr${trTip(TP.contrib)}><td class="l">Margen de contribución usado</td><td class="mono val-calc">${fPct(P.ratio)}${P.conVol?' (ponderado)':' (promedio · sin volumen)'}</td></tr>
     <tr><td class="l">Equilibrio como % de ventas actuales</td><td class="mono val-calc">${per==null?'—':fPct(per)}</td></tr>
-    <tr><td class="l">Margen de seguridad</td><td class="mono val-calc">${P.margenSeg==null?'—':fPct(P.margenSeg)}</td></tr>
-    <tr><td class="l">Faltante para el equilibrio</td><td class="mono val-calc">${P.faltante==null?(P.conVol?'$0 (ya cubierto)':'—'):fMXN(P.faltante)}</td></tr>
+    <tr${trTip(TP.seg)}><td class="l">Margen de seguridad</td><td class="mono val-calc">${P.margenSeg==null?'—':fPct(P.margenSeg)}</td></tr>
+    <tr${trTip(TP.falt)}><td class="l">Faltante para el equilibrio</td><td class="mono val-calc">${P.faltante==null?(P.conVol?'$0 (ya cubierto)':'—'):fMXN(P.faltante)}</td></tr>
     <tr><td class="l">Meta de ventas mensual</td><td>${inp("presupuesto.meta",{ph:"opcional"})}</td></tr>
     <tr><td class="l">Meta vs. equilibrio</td><td class="mono val-calc">${(P.meta!=null&&P.PE!=null)?(P.meta>=P.PE?('+'+fMXN(P.meta-P.PE)+' sobre equilibrio'):(fMXN(P.meta-P.PE))):'—'}</td></tr>
   </table>`;
@@ -2948,16 +3017,16 @@ function secPresupuesto(R){
     ${panelReal(X,P)}
     ${P.key!=="catalogo"?`<h3 style="margin:6px 0 10px;font-size:15px">Presupuesto del periodo</h3>`:""}
     <div class="hero">
-      ${hcard("Ventas "+(P.meses>1?"del año":"del periodo"),P.conVol?fMXN0(P.ventas):"—",escapeHtml(P.etiqueta),"",true)}
-      ${hcard("Margen de contribución",fPct(P.ratio),P.conVol?"ponderado por mezcla":"promedio (sin volumen)")}
-      ${hcard("Gastos fijos",fMXN0(P.GF),P.meses>1?(P.meses+" meses · "+fMXN0(P.GFmes)+"/mes"):"a cubrir cada mes")}
-      ${hcard("Punto de equilibrio",P.PE==null?"—":fMXN0(P.PE),"en ventas "+(P.meses>1?"anuales":"mensuales"))}
+      ${hcard("Ventas "+(P.meses>1?"del año":"del periodo"),P.conVol?fMXN0(P.ventas):"—",escapeHtml(P.etiqueta),"",true,TP.ventas)}
+      ${hcard("Margen de contribución",fPct(P.ratio),P.conVol?"ponderado por mezcla":"promedio (sin volumen)","",false,TP.contrib)}
+      ${hcard("Gastos fijos",fMXN0(P.GF),P.meses>1?(P.meses+" meses · "+fMXN0(P.GFmes)+"/mes"):"a cubrir cada mes","",false,TP.gf)}
+      ${hcard("Punto de equilibrio",P.PE==null?"—":fMXN0(P.PE),"en ventas "+(P.meses>1?"anuales":"mensuales"),"",false,TP.pe)}
     </div>
     <div class="hero">
-      ${hcard("Utilidad de operación",P.utilOper==null?"—":fMXN0(P.utilOper),P.utilOper==null?"captura volúmenes":(P.utilOper>0?"la empresa gana":"pérdida"),P.utilOper==null?"g":(P.utilOper>0?"v":"r"))}
-      ${hcard("Margen de seguridad",P.margenSeg==null?"—":fPct(P.margenSeg),"qué tanto arriba del equilibrio",P.margenSeg==null?"g":(P.margenSeg>0?"v":"r"))}
-      ${hcard("Faltante para equilibrio",P.faltante==null?(P.conVol?"$0":"—"):fMXN0(P.faltante),P.faltante==null?(P.conVol?"equilibrio cubierto":"—"):"ventas adicionales necesarias",P.faltante==null?"v":"a")}
-      <div class="hcard ${estLuz}"><div class="bar"></div><div class="k">Estado financiero</div>
+      ${hcard("Utilidad de operación",P.utilOper==null?"—":fMXN0(P.utilOper),P.utilOper==null?"captura volúmenes":(P.utilOper>0?"la empresa gana":"pérdida"),P.utilOper==null?"g":(P.utilOper>0?"v":"r"),false,TP.util)}
+      ${hcard("Margen de seguridad",P.margenSeg==null?"—":fPct(P.margenSeg),"qué tanto arriba del equilibrio",P.margenSeg==null?"g":(P.margenSeg>0?"v":"r"),false,TP.seg)}
+      ${hcard("Faltante para equilibrio",P.faltante==null?(P.conVol?"$0":"—"):fMXN0(P.faltante),P.faltante==null?(P.conVol?"equilibrio cubierto":"—"):"ventas adicionales necesarias",P.faltante==null?"v":"a",false,TP.falt)}
+      <div class="hcard ${estLuz}"${trTip(TP.estado)}><div class="bar"></div><div class="k">Estado financiero <span style="opacity:.55;font-size:11px">ⓘ</span></div>
         <div class="v" style="font-size:15px">${estTxt}</div></div>
     </div>
 
