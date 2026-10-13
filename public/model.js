@@ -1787,13 +1787,17 @@ function cqParamsHTML(){
   const rows=S.cotParams.cortes.map((c,k)=>`<tr><td class="l">${inp(`cotParams.cortes.${k}.n`,{type:"text",cls:"txt wide"})}</td><td>${inp(`cotParams.cortes.${k}.prep`)}</td><td>${inp(`cotParams.cortes.${k}.min`)}</td>
     <td class="l">${selRaw(`cotParams.cortes.${k}.ce`,CENTROS,c.ce||CENTRO_PROD)}</td><td><button class="del" data-click="cqDelParam('cortes',${k})">✕</button></td></tr>`).join("");
   const ex=S.cotParams.extras.map((x,k)=>`<tr><td class="l">${inp(`cotParams.extras.${k}.n`,{type:"text",cls:"txt wide"})}</td><td>${inp(`cotParams.extras.${k}.costo`)}</td><td><button class="del" data-click="cqDelParam('extras',${k})">✕</button></td></tr>`).join("");
-  return `<details class="card" style="margin-top:16px"><summary style="padding:12px 16px;cursor:pointer;font-weight:600">Parámetros del cotizador (tipos de corte, tiempos y extras)</summary><div class="pad"><div class="grid2">
-    <div><table><thead><tr><th class="l">Tipo de corte</th><th>Prep. min por lote</th><th>Min por vez</th><th class="l">Centro</th><th></th></tr></thead><tbody>${rows}</tbody></table>
-      <button class="rowbtn" data-click="cqAddParam('cortes')">+ Tipo de corte</button></div>
-    <div><table><thead><tr><th class="l">Extra</th><th>MXN por pieza</th><th></th></tr></thead><tbody>${ex}</tbody></table>
-      <button class="rowbtn" data-click="cqAddParam('extras')">+ Extra</button>
-      <div class="note" style="margin-top:10px">Ajusta los minutos con lo que tome producción en algunas corridas reales (el registro de Producción y carga te da los minutos por pieza). Familias de material: ${CQ_FAMILIAS().join(", ")}.</div></div>
-  </div></div></details>`;
+  return `<details class="card" style="margin-top:16px"><summary style="padding:12px 16px;cursor:pointer;font-weight:600">Parámetros del cotizador (tipos de corte, tiempos y extras)</summary><div class="pad">
+    <h4 style="margin:0 0 6px;font-size:13.5px">Tipos de corte y operaciones</h4>
+    <table class="fija plantilla" style="width:100%;table-layout:fixed"><colgroup><col style="width:38%"><col style="width:13%"><col style="width:13%"><col style="width:31%"><col style="width:5%"></colgroup>
+      <thead><tr><th class="l">Tipo de corte</th><th>Prep. min por lote</th><th>Min por vez</th><th class="l">Centro de costo</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    <button class="rowbtn" data-click="cqAddParam('cortes')">+ Tipo de corte</button>
+    <h4 style="margin:18px 0 6px;font-size:13.5px">Extras por pieza</h4>
+    <table class="fija plantilla" style="width:100%;max-width:620px;table-layout:fixed"><colgroup><col style="width:66%"><col style="width:26%"><col style="width:8%"></colgroup>
+      <thead><tr><th class="l">Extra</th><th>MXN por pieza</th><th></th></tr></thead><tbody>${ex}</tbody></table>
+    <button class="rowbtn" data-click="cqAddParam('extras')">+ Extra</button>
+    <div class="note" style="margin-top:12px">Ajusta los minutos con lo que tome producción en algunas corridas reales (el registro de Producción y carga te da los minutos por pieza). Familias de material: ${CQ_FAMILIAS().join(", ")}.</div>
+  </div></details>`;
 }
 
 /* ===================== D1/D2 · PRECIO MÍNIMO Y CONTRIBUCIÓN ===================== */
