@@ -454,7 +454,7 @@ document.addEventListener("input",e=>{ if(e.target.dataset&&e.target.dataset.pat
 /* ===================== SECCIONES ===================== */
 const SECTIONS=[
   {id:"guia",ix:"00",name:"Guía del mes"},
-  {id:"dashboard",ix:"01",name:"Panel ejecutivo"},
+  {id:"dashboard",ix:"01",name:"Dashboard ejecutivo"},
   {id:"presupuesto",ix:"02",name:"Presupuesto y equilibrio"},
   {id:"resumen",ix:"03",name:"Resumen"},
   {id:"control",ix:"04",name:"Parámetros y costo financiero"},
@@ -1550,7 +1550,7 @@ function secGuia(){
           <button class="rowbtn" style="margin:0" data-click="go('${x.vista}')">Ir a capturar</button></div>
       </div></div></div>`; }).join("");
   return head("Guía del mes","LISTA DE CAPTURA · "+nombreMes(k).toUpperCase(),
-    `Lo que hay que capturar en <b>${escapeHtml(nombreMes(k))}</b>, en orden, con qué es y para qué sirve. Cuando todo esté en verde, los números del Panel ejecutivo, del Costeo mensual y de los precios son confiables. El mes de trabajo se cambia en el Panel ejecutivo.`)
+    `Lo que hay que capturar en <b>${escapeHtml(nombreMes(k))}</b>, en orden, con qué es y para qué sirve. Cuando todo esté en verde, los números del Dashboard ejecutivo, del Costeo mensual y de los precios son confiables. El mes de trabajo se cambia en el Dashboard ejecutivo.`)
   +`<div class="filterbar">${mesTrabajoChip(k)}${badgePeriodo(k)}</div>
     <div class="hero">
       ${hcard("Avance del mes",`${okReq} de ${req}`,okReq>=req?"todo listo":"pasos obligatorios listos","",true)}
@@ -2443,7 +2443,7 @@ function secFacturas(R){
   }).join("");
   const ult=facUltimo?`<div class="note" style="margin:0 0 12px">${facUltimo}</div>`:"";
   return head("Facturas de venta","CFDI · VENTAS REALES",
-    "Sube los XML de tus facturas de venta (CFDI). Cada concepto se asigna al inserto cuyo número viene en <b>No. de identificación</b>. Lo facturado se compara contra el volumen proyectado del mes y se muestra como <b>real</b> en Costeo mensual, Presupuesto y equilibrio y el Panel ejecutivo, sin modificar lo proyectado.")
+    "Sube los XML de tus facturas de venta (CFDI). Cada concepto se asigna al inserto cuyo número viene en <b>No. de identificación</b>. Lo facturado se compara contra el volumen proyectado del mes y se muestra como <b>real</b> en Costeo mensual, Presupuesto y equilibrio y el Dashboard ejecutivo, sin modificar lo proyectado.")
   +`<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
       ${mesTrabajoChip(k)}
       <label class="btn primary" style="cursor:pointer">Subir XML de facturas
@@ -2586,7 +2586,7 @@ function secDashboard(R){
 
   return `
     <div class="exhead">
-      <h2>Panel ejecutivo</h2>
+      <h2>Dashboard ejecutivo</h2>
       <div class="exsel" style="display:inline-flex;border-color:var(--accent)"><span>Mes de trabajo</span>
         <input type="month" class="f" style="width:150px" value="${escapeHtml(periodoKey())}" data-change="setPeriodo(this.value)"></div>
       ${badgePeriodo(periodoKey())}
@@ -2615,6 +2615,7 @@ function secDashboard(R){
       <div class="card"><h3>Estructura del pool de manufactura</h3><div class="chartbox"><canvas id="ch_pool"></canvas></div></div>
       <div class="card full"><h3>Precio cliente vs. costo por inserto <span class="hint" style="font-weight:400">(MXN/pza)</span></h3><div style="overflow-x:auto"><div class="chartbox tall" style="min-width:${Math.max(560,R.integral.length*46)}px"><canvas id="ch_price"></canvas></div></div></div>
       <div class="card full"><h3>Margen por inserto vs. objetivo</h3><div style="overflow-x:auto"><div class="chartbox tall" style="min-width:${Math.max(560,R.integral.length*46)}px"><canvas id="ch_margin"></canvas></div></div></div>
+      <div class="card full"><h3>Utilidad y contribución mensual por inserto <span class="hint" style="font-weight:400">(MXN/mes · los 12 con más venta)</span></h3><div class="chartbox tall"><canvas id="ch_util"></canvas></div></div>
       <div class="card full"><h3>Decisiones sugeridas</h3><ul class="insights">${insights(R,bajoObj,bajoCosto)}</ul></div>
     </div>`;
 }
@@ -2662,53 +2663,71 @@ function buildDashboardCharts(R){
   Chart.defaults.font.size=11; Chart.defaults.color="#5f6d7a";
   const ids=R.integral.map(i=>i.ins.id);
   const mk=(id,cfg)=>{const el=document.getElementById(id);if(!el)return;try{CHARTS.push(new Chart(el,cfg));}catch(e){console.warn(e);}};
+  // Animación: las barras crecen una tras otra
+  const anim={duration:900,easing:"easeOutQuart",delay:c=>(c.type==="data"&&c.mode==="default")?c.dataIndex*55+c.datasetIndex*140:0};
+  const hover={hoverBackgroundColor:c=>{ const col=c.dataset.backgroundColor; const v=Array.isArray(col)?col[c.dataIndex]:col; return v; },hoverBorderColor:"#16222e",hoverBorderWidth:1.5};
+  const money=v=>Math.abs(v)>=1000?"$"+(v/1000).toLocaleString("es-MX",{maximumFractionDigits:0})+"k":"$"+Number(v).toLocaleString("es-MX");
 
-  // A. Salud del portafolio
+  // A. Salud del portafolio (barras horizontales por semáforo)
   const cnt={v:0,a:0,r:0,g:0}; R.integral.forEach(i=>cnt[i.luz]++);
-  mk("ch_health",{type:"doughnut",
-    data:{labels:["Verde · cumple","Amarillo · bajo objetivo","Rojo · negativo","Incompleto"],
-      datasets:[{data:[cnt.v,cnt.a,cnt.r,cnt.g],backgroundColor:[SEM.v,SEM.a,SEM.r,SEM.g],borderWidth:2,borderColor:"#fff"}]},
-    options:{responsive:true,maintainAspectRatio:false,cutout:"58%",plugins:{legend:{position:"right",labels:{boxWidth:12,padding:10}}}}});
+  mk("ch_health",{type:"bar",
+    data:{labels:["Cumple objetivo","Bajo objetivo","Margen negativo","Incompleto"],
+      datasets:[{label:"Insertos",data:[cnt.v,cnt.a,cnt.r,cnt.g],backgroundColor:[SEM.v,SEM.a,SEM.r,SEM.g],borderRadius:6,barPercentage:.75,...hover}]},
+    options:{indexAxis:"y",responsive:true,maintainAspectRatio:false,animation:anim,
+      scales:{x:{beginAtZero:true,ticks:{precision:0},grid:{color:"#eef1f4"}},y:{grid:{display:false}}},
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${c.parsed.x} inserto(s) · ${fPct(R.integral.length?c.parsed.x/R.integral.length:0)} del catálogo`}}}}});
 
-  // B. Estructura del pool
-  mk("ch_pool",{type:"doughnut",
-    data:{labels:["Energía","Mano de obra directa","Indirectos fabriles"],
-      datasets:[{data:[R.energiaSubtotal,R.moDirecta,R.indFabril],
-        backgroundColor:[PAL[4],PAL[0],PAL[6]],borderWidth:2,borderColor:"#fff"}]},
-    options:{responsive:true,maintainAspectRatio:false,cutout:"58%",
-      plugins:{legend:{position:"right",labels:{boxWidth:12,padding:10}},
-        tooltip:{callbacks:{label:c=>` ${c.label}: ${fMXN0(c.parsed)} (${fPct(c.parsed/R.pool)})`}}}}});
+  // B. Estructura del pool (barras horizontales en $)
+  const pl=[["Mano de obra directa",R.moDirecta,PAL[0]],["Indirectos fabriles",R.indFabril,PAL[6]],["Energía",R.energiaSubtotal,PAL[4]],["Maquinaria",R.maqTotal,PAL[2]||PAL[1]]]
+    .filter(x=>x[1]>0).sort((a,b)=>b[1]-a[1]);
+  mk("ch_pool",{type:"bar",
+    data:{labels:pl.map(x=>x[0]),datasets:[{label:"MXN/mes",data:pl.map(x=>x[1]),backgroundColor:pl.map(x=>x[2]),borderRadius:6,barPercentage:.75,...hover}]},
+    options:{indexAxis:"y",responsive:true,maintainAspectRatio:false,animation:anim,
+      scales:{x:{beginAtZero:true,ticks:{callback:money},grid:{color:"#eef1f4"}},y:{grid:{display:false}}},
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${fMXN0(c.parsed.x)} (${fPct(R.pool>0?c.parsed.x/R.pool:0)} del pool)`}}}}});
 
-  // C. Precio vs costo por inserto
+  // C. Precio vs costo por inserto (barras agrupadas)
   const costo=R.integral.map(i=>i.complete?i.costoIntegral:i.materialMXN);
   const precio=R.integral.map(i=>i.precioClMXN);
   const sug=R.integral.map(i=>i.precioSug);
   mk("ch_price",{type:"bar",
     data:{labels:ids,datasets:[
-      {label:"Costo (integral o material s/ruta)",data:costo,backgroundColor:PAL[6],borderRadius:4},
-      {label:"Precio cliente",data:precio,backgroundColor:PAL[0],borderRadius:4},
-      {label:"Precio sugerido (margen obj.)",data:sug,type:"line",borderColor:SEM.a,backgroundColor:SEM.a,
-        borderWidth:2,borderDash:[5,4],pointRadius:3,pointBackgroundColor:SEM.a,spanGaps:false}
+      {label:"Costo (integral o material s/ruta)",data:costo,backgroundColor:PAL[6],borderRadius:4,...hover},
+      {label:"Precio cliente",data:precio,backgroundColor:PAL[0],borderRadius:4,...hover},
+      {label:"Precio sugerido (margen obj.)",data:sug,backgroundColor:SEM.a,borderRadius:4,...hover}
     ]},
-    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:"index",intersect:false},
-      scales:{y:{ticks:{callback:v=>"$"+v.toLocaleString("es-MX")}}},
+    options:{responsive:true,maintainAspectRatio:false,animation:anim,interaction:{mode:"index",intersect:false},
+      scales:{y:{beginAtZero:true,ticks:{callback:v=>"$"+v.toLocaleString("es-MX")},grid:{color:"#eef1f4"}},x:{grid:{display:false}}},
       plugins:{legend:{position:"bottom",labels:{boxWidth:12,padding:12}},
         tooltip:{callbacks:{label:c=>` ${c.dataset.label}: ${c.parsed.y==null?'—':fMXN(c.parsed.y)}`}}}}});
 
-  // D. Margen por inserto
+  // D. Margen por inserto vs. objetivo (barras agrupadas)
   const mg=R.integral.map(i=>i.complete?i.margenReal*100:(i.precioClMXN>0?i.contribUnit/i.precioClMXN*100:0));
   const cols=R.integral.map(i=>i.complete?SEM[i.luz]:"#cfd6dc");
   const obj=R.integral.map(i=>i.margenObj*100);
   mk("ch_margin",{type:"bar",
     data:{labels:ids,datasets:[
-      {label:"Margen real % (o contribución % si s/ruta)",data:mg,backgroundColor:cols,borderRadius:4},
-      {label:"Margen objetivo %",data:obj,type:"line",borderColor:"#16222e",borderWidth:2,borderDash:[5,4],pointRadius:0}
+      {label:"Margen real % (o contribución % si s/ruta)",data:mg,backgroundColor:cols,borderRadius:4,...hover},
+      {label:"Margen objetivo %",data:obj,backgroundColor:"rgba(22,34,46,.18)",borderColor:"#16222e",borderWidth:1,borderRadius:4,...hover}
     ]},
-    options:{responsive:true,maintainAspectRatio:false,
-      scales:{y:{ticks:{callback:v=>v+"%"}}},
+    options:{responsive:true,maintainAspectRatio:false,animation:anim,interaction:{mode:"index",intersect:false},
+      scales:{y:{ticks:{callback:v=>v+"%"},grid:{color:"#eef1f4"}},x:{grid:{display:false}}},
       plugins:{legend:{position:"bottom",labels:{boxWidth:12,padding:12}},
         tooltip:{callbacks:{label:c=>` ${c.dataset.label}: ${fN(c.parsed.y,1)}%`}}}}});
 
+  // E. Utilidad y contribución mensual por inserto (top 12 por venta)
+  const top=R.integral.filter(i=>i.vol>0).sort((a,b)=>b.ingresoMes-a.ingresoMes).slice(0,12);
+  const box=document.getElementById("ch_util");
+  if(box&&!top.length){ box.parentElement.innerHTML='<div class="note" style="margin:16px">Captura volúmenes del mes en Costeo mensual para ver la utilidad por inserto.</div>'; }
+  else mk("ch_util",{type:"bar",
+    data:{labels:top.map(i=>i.ins.id),datasets:[
+      {label:"Contribución mensual (precio − costo variable)",data:top.map(i=>i.contribMes),backgroundColor:PAL[4],borderRadius:4,...hover},
+      {label:"Utilidad mensual (precio − costo integral)",data:top.map(i=>i.utilMes),backgroundColor:top.map(i=>i.utilMes==null?"#cfd6dc":(i.utilMes<0?SEM.r:SEM.v)),borderRadius:4,...hover}
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,animation:anim,interaction:{mode:"index",intersect:false},
+      scales:{y:{ticks:{callback:money},grid:{color:"#eef1f4"}},x:{grid:{display:false}}},
+      plugins:{legend:{position:"bottom",labels:{boxWidth:12,padding:12}},
+        tooltip:{callbacks:{label:c=>` ${c.dataset.label}: ${c.parsed.y==null?'falta ruta':fMXN0(c.parsed.y)}`,afterBody:it=>{ const i=top[it[0].dataIndex]; return `Volumen: ${fN(i.vol,0)} pzas · venta ${fMXN0(i.ingresoMes)}`; }}}}}});
 }
 
 /* ===================== PRESUPUESTO Y PUNTO DE EQUILIBRIO ===================== */
@@ -2861,8 +2880,8 @@ function listaPeriodos(){
     .concat(anios.map(y=>({v:"anio:"+y,t:"Año "+y})));
 }
 function mesTrabajoChip(k){
-  return `<div class="exsel" style="display:inline-flex" title="El mes de trabajo se elige en el Panel ejecutivo"><span>Mes de trabajo</span><b style="color:var(--accent2)">${escapeHtml(nombreMes(k))}</b></div>
-    <button class="rowbtn" style="margin:0" data-click="go('dashboard')">Cambiar en Panel ejecutivo</button>`;
+  return `<div class="exsel" style="display:inline-flex" title="El mes de trabajo se elige en el Dashboard ejecutivo"><span>Mes de trabajo</span><b style="color:var(--accent2)">${escapeHtml(nombreMes(k))}</b></div>
+    <button class="rowbtn" style="margin:0" data-click="go('dashboard')">Cambiar en Dashboard ejecutivo</button>`;
 }
 function avgContribRatio(R){
   const arr=R.integral.filter(i=>i.precioClMXN>0).map(i=>i.contribUnit/i.precioClMXN);
