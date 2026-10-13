@@ -67,7 +67,7 @@ window.NF=(()=>{
   if(pending||saving){alert('Tienes cambios pendientes. Espera el guardado o descarga un respaldo antes de salir.');return;}
   try{await api('logout','POST',{});document.querySelector('.nf-account')?.remove();window.NF_MODEL.load(window.NF_MODEL.defaults,'consulta');login();}catch(error){alert(error.message);}
  }
- const readActions=new Set(['go','setCliFiltro','setCliRuta','setCliVista','setCliDiagrama','setDiseno','setDiagrama','setRutaFilter','setSensMetric','setPeriodoVista','setPresuPeriodo','setPeriodo','exportExcel','exportPDF','exportJSON','abrirAcceso']);
+ const readActions=new Set(['go','setCliFiltro','setCliRuta','setCliVista','setCliDiagrama','setDiseno','setDiagrama','setRutaFilter','setSensMetric','setPeriodoVista','setPresuPeriodo','setPeriodo','exportExcel','exportPDF','setDashVista','pdfSocios','exportJSON','abrirAcceso']);
  const adminActions=new Set(['reset','importJSON','importPicker','mesCerrar','mesBorrar']);
  function permitted(name){return !!user&&(!adminActions.has(name)||user.role==='admin')&&(user.role!=='consulta'||readActions.has(name));}
  function applyPermissions(){
