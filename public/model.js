@@ -2541,6 +2541,7 @@ const SEM={v:'#1f9d55',a:'#e0a800',r:'#cf3f52',g:'#b0bac3'};
 function destroyCharts(){CHARTS.forEach(c=>{try{c.destroy();}catch(e){}});CHARTS=[];}
 
 function secDashboard(R){
+  if(dashVista==="ejec") return secDashEjec(R);
   const scn=S.control.escenario;
   const util=R.utilPct;
   const ready=R.readyCount, total=R.integral.length;
@@ -2590,6 +2591,7 @@ function secDashboard(R){
       <div class="exsel" style="display:inline-flex;border-color:var(--accent)"><span>Mes de trabajo</span>
         <input type="month" class="f" style="width:150px" value="${escapeHtml(periodoKey())}" data-change="setPeriodo(this.value)"></div>
       ${badgePeriodo(periodoKey())}
+      ${dashToggle()}
       ${esAdmin()?`<button class="rowbtn" style="margin:0;border-color:var(--red);color:var(--red)" data-click="mesBorrar()">Borrar ${escapeHtml(nombreMes(periodoKey()))}</button>
       <button class="rowbtn" style="margin:0" data-click="cambiarPin()">${(S.seguridad&&S.seguridad.pinHash)?"Cambiar PIN":"Crear PIN"}</button>`:""}
       <span class="hint" style="margin-left:auto">${new Date().toLocaleDateString("es-MX",{day:'2-digit',month:'long',year:'numeric'})}</span>
@@ -2728,6 +2730,126 @@ function buildDashboardCharts(R){
       scales:{y:{ticks:{callback:money},grid:{color:"#eef1f4"}},x:{grid:{display:false}}},
       plugins:{legend:{position:"bottom",labels:{boxWidth:12,padding:12}},
         tooltip:{callbacks:{label:c=>` ${c.dataset.label}: ${c.parsed.y==null?'falta ruta':fMXN0(c.parsed.y)}`,afterBody:it=>{ const i=top[it[0].dataIndex]; return `Volumen: ${fN(i.vol,0)} pzas · venta ${fMXN0(i.ingresoMes)}`; }}}}}});
+}
+
+/* ===================== DASHBOARD EJECUTIVO · VISTA PARA SOCIOS ===================== */
+var dashVista=(function(){ try{ return localStorage.getItem("nf_dashVista")||"oper"; }catch(e){ return "oper"; } })();
+function fSgn0(x){ return x==null||!isFinite(x)?"—":(x<0?"−$":"$")+Math.abs(x).toLocaleString("es-MX",{maximumFractionDigits:0}); }
+function dashToggle(){
+  const b=(v,t)=>`<button class="rowbtn" style="margin:0;${dashVista===v?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" data-click="setDashVista('${v}')">${t}</button>`;
+  return `<div style="display:inline-flex;gap:0;align-items:center">${b("ejec","Vista socios")}${b("oper","Vista operativa")}</div>
+    <button class="btn primary" style="margin:0" data-click="pdfSocios()">PDF para socios</button>`;
+}
+// Datos de la vista ejecutiva del mes de trabajo: presupuesto (plan) y real con las facturas
+function ejecData(R){
+  const k=periodoKey(); const P=computePresupuesto(R,k); let X=null; try{ X=resultadoReal(R,P); }catch(e){ X=null; }
+  const hasReal=!!X;
+  const plan={ventas:P.ventas,cv:P.varMes,contrib:P.contribMes,fijos:P.GF,util:P.conVol?P.utilOper:null,razon:P.ratio,pe:P.PE};
+  const real=hasReal?{ventas:X.ventas,cv:X.cv,contrib:X.contrib,fijos:X.fijos,util:X.util,razon:X.razon,pe:X.pe}:null;
+  const cur=real||plan;
+  const margenOp=cur.ventas>0&&cur.util!=null?cur.util/cur.ventas:null;
+  const avance=cur.pe>0?cur.ventas/cur.pe:null;
+  const cumpl=hasReal&&plan.ventas>0?real.ventas/plan.ventas:null;
+  // Insertos con más venta (real si hay facturas; si no, presupuesto)
+  let top;
+  if(hasReal) top=X.partes.map(p=>({id:p.id,cliente:p.cliente,pz:p.pz,venta:p.venta,contrib:p.c,margen:p.venta?p.c/p.venta:null}));
+  else top=R.integral.filter(i=>i.vol>0).map(i=>({id:String(i.ins.id),cliente:clienteLabel(i.ins),pz:i.vol,venta:i.ingresoMes,contrib:i.contribMes,margen:i.ingresoMes?i.contribMes/i.ingresoMes:null}));
+  top.sort((a,b)=>b.venta-a.venta);
+  const porCli={}; top.forEach(t=>{ porCli[t.cliente]=(porCli[t.cliente]||0)+t.venta; });
+  const totV=top.reduce((a,t)=>a+t.venta,0);
+  const cliTop=Object.entries(porCli).sort((a,b)=>b[1]-a[1])[0];
+  const bajoCosto=R.integral.filter(i=>i.complete&&i.utilidad<0).length, incompletos=R.integral.filter(i=>!i.complete).length;
+  // Mensajes clave
+  const M=[];
+  if(hasReal){
+    M.push([cumpl==null?"info":(cumpl>=1?"ok":"warn"),`Ventas facturadas de <b>${fSgn0(real.ventas)}</b>${cumpl==null?"":` — ${fPct(cumpl)} de lo presupuestado (${fSgn0(plan.ventas)})`}.`]);
+    M.push([real.util>=0?"ok":"risk",real.util>=0?`Utilidad de operación real de <b>${fSgn0(real.util)}</b> (${fPct(margenOp)} sobre ventas).`:`Pérdida de operación de <b>${fSgn0(-real.util)}</b>${real.razon>0?`: faltan ${fSgn0(-real.util/real.razon)} de ventas para cubrir los gastos fijos`:""}.`]);
+  } else {
+    M.push(["info",`Aún no hay facturas de ${escapeHtml(nombreMes(k))}: las cifras son el <b>presupuesto</b> del mes (Costeo mensual).`]);
+    if(plan.util!=null) M.push([plan.util>=0?"ok":"risk",`Utilidad de operación presupuestada de <b>${fSgn0(plan.util)}</b>${margenOp==null?"":` (${fPct(margenOp)} sobre ventas)`}.`]);
+  }
+  if(cur.pe!=null) M.push([avance!=null&&avance>=1?"ok":"warn",`Punto de equilibrio de <b>${fSgn0(cur.pe)}</b> al mes${avance==null?"":`; ${hasReal?"llevamos":"el presupuesto cubre"} <b>${fPct(avance)}</b>`}.`]);
+  if(hasReal&&real.razon!=null&&plan.razon!=null&&Math.abs(real.razon-plan.razon)>0.03) M.push([real.razon>=plan.razon?"ok":"warn",`Margen de contribución real de ${fPct(real.razon)} contra ${fPct(plan.razon)} presupuestado.`]);
+  if(cliTop&&totV>0&&cliTop[1]/totV>0.5) M.push(["warn",`<b>${escapeHtml(cliTop[0])}</b> concentra ${fPct(cliTop[1]/totV)} de las ventas: riesgo de dependencia de un solo cliente.`]);
+  if(bajoCosto) M.push(["risk",`${bajoCosto} inserto(s) se venden por debajo de su costo integral: revisar precio.`]);
+  if(R.utilPct!=null) M.push([R.utilPct<0.7?"warn":"ok",`Utilización de la planta de ${fPct(R.utilPct)} de la capacidad práctica${R.ociosaCosto>0?` (capacidad ociosa: ${fSgn0(R.ociosaCosto)}/mes)`:""}.`]);
+  if(incompletos) M.push(["info",`${incompletos} inserto(s) del catálogo aún sin ruta de proceso completa.`]);
+  return {k,P,X,hasReal,plan,real,cur,margenOp,avance,cumpl,top,totV,M,R};
+}
+function secDashEjec(R){
+  const D=ejecData(R), c=D.cur, k=D.k;
+  const fuente=D.hasReal?"real con facturas":"presupuesto";
+  const luzU=c.util==null?"g":(c.util>=0?"v":"r");
+  const estado=c.util==null?"Captura volúmenes o facturas para ver el resultado":(c.util>=0?(D.hasReal?"El mes ya cubre sus gastos y genera utilidad":"El presupuesto del mes genera utilidad"):(D.hasReal?"El mes todavía no cubre sus gastos fijos":"El presupuesto del mes no cubre los gastos fijos"));
+  return `
+    <div class="exhead">
+      <h2>Dashboard ejecutivo</h2>
+      <div class="exsel" style="display:inline-flex;border-color:var(--accent)"><span>Mes de trabajo</span>
+        <input type="month" class="f" style="width:150px" value="${escapeHtml(k)}" data-change="setPeriodo(this.value)"></div>
+      ${dashToggle()}
+      <span class="hint" style="margin-left:auto">${new Date().toLocaleDateString("es-MX",{day:'2-digit',month:'long',year:'numeric'})}</span>
+    </div>
+    <div class="hcard ${luzU}" style="margin:10px 0 14px;padding:16px 20px"><div class="bar"></div>
+      <div class="k">Resumen para socios · ${escapeHtml(nombreMes(k))} · cifras de ${fuente}</div>
+      <div class="v" style="font-size:22px">${estado}</div></div>
+    <div class="hero">
+      ${hcard(D.hasReal?"Ventas facturadas":"Ventas presupuestadas",fSgn0(c.ventas),D.cumpl==null?"sin IVA":fPct(D.cumpl)+" de lo presupuestado","",true,
+        tipTxt(D.hasReal?"Subtotal de las facturas de venta vigentes del mes.":"Precio × volumen del mes en Costeo mensual.",D.hasReal?`Presupuesto: ${fSgn0(D.plan.ventas)}.`:""))}
+      ${hcard("Utilidad de operación",fSgn0(c.util),D.margenOp==null?"":fPct(D.margenOp)+" sobre ventas",luzU,false,tipTxt("Margen de contribución − gastos fijos.",`${fSgn0(c.contrib)} − ${fSgn0(c.fijos)} = ${fSgn0(c.util)}.`))}
+      ${hcard("Punto de equilibrio",fSgn0(c.pe),D.avance==null?"ventas para no perder":"llevamos "+fPct(D.avance),D.avance==null?"g":(D.avance>=1?"v":(D.avance>=0.8?"a":"r")),false,tipTxt("Gastos fijos ÷ margen de contribución.",c.pe==null?"":`${fSgn0(c.fijos)} ÷ ${fPct(c.razon)} = ${fSgn0(c.pe)}.`))}
+      ${hcard("Margen de contribución",fPct(c.razon),D.hasReal&&D.plan.razon!=null?"presupuestado "+fPct(D.plan.razon):"de cada peso vendido","",false,tipTxt("(Ventas − costo variable) ÷ ventas.","Es lo que queda de cada peso para pagar gastos fijos y dejar utilidad."))}
+    </div>
+    <div class="exgrid">
+      <div class="card"><h3>Presupuesto vs. real del mes</h3><div class="chartbox"><canvas id="ch_ej_pvr"></canvas></div></div>
+      <div class="card"><h3>¿A dónde va cada peso vendido?</h3><div class="chartbox"><canvas id="ch_ej_estr"></canvas></div></div>
+      <div class="card full"><h3>Insertos con más venta <span class="hint" style="font-weight:400">(${D.hasReal?"facturado":"presupuesto"} · color por margen de contribución)</span></h3><div class="chartbox tall"><canvas id="ch_ej_top"></canvas></div></div>
+      <div class="card full"><h3>Mensajes clave</h3><ul class="insights">${D.M.map(([t,x])=>`<li><span class="ic ${t}">${t==='ok'?'✓':t==='risk'?'!':t==='warn'?'▲':'i'}</span><span>${x}</span></li>`).join("")}</ul></div>
+    </div>`;
+}
+// Configuraciones de las gráficas ejecutivas (pantalla y PDF)
+function ejecCharts(D,pdf){
+  const anim=pdf?false:{duration:900,easing:"easeOutQuart",delay:c=>(c.type==="data"&&c.mode==="default")?c.dataIndex*70+c.datasetIndex*160:0};
+  const base={responsive:!pdf,maintainAspectRatio:false,animation:anim,devicePixelRatio:pdf?2:undefined};
+  const money=v=>Math.abs(v)>=1000?(v<0?"-":"")+"$"+(Math.abs(v)/1000).toLocaleString("es-MX",{maximumFractionDigits:0})+"k":"$"+Number(v).toLocaleString("es-MX");
+  const fs=pdf?13:11;
+  const labs=["Ventas","Costo variable","Gastos fijos","Utilidad"];
+  const val=o=>o?[o.ventas,o.cv,o.fijos,o.util]:[];
+  const ds=[{label:"Presupuesto",data:val(D.plan),backgroundColor:"rgba(43,84,136,.35)",borderColor:PAL[0],borderWidth:1,borderRadius:5}];
+  if(D.real) ds.push({label:"Real (facturas)",data:val(D.real),backgroundColor:val(D.real).map((v,i)=>i===3?(v>=0?SEM.v:SEM.r):PAL[0]),borderRadius:5});
+  const pvr={type:"bar",data:{labels:labs,datasets:ds},options:{...base,
+    scales:{y:{ticks:{callback:money,font:{size:fs}},grid:{color:"#eef1f4"}},x:{ticks:{font:{size:fs}},grid:{display:false}}},
+    plugins:{legend:{position:"bottom",labels:{boxWidth:12,padding:12,font:{size:fs}}},tooltip:{callbacks:{label:c=>` ${c.dataset.label}: ${fSgn0(c.parsed.y)}`}}}}};
+  const pct=o=>{ if(!o||!(o.ventas>0)) return [0,0,0]; const cvp=o.cv/o.ventas, fp=o.fijos/o.ventas; return [cvp*100,fp*100,(1-cvp-fp)*100]; };
+  const rows=[["Presupuesto",pct(D.plan)]].concat(D.real?[["Real",pct(D.real)]]:[]);
+  const estr={type:"bar",data:{labels:rows.map(r=>r[0]),datasets:[
+      {label:"Costo variable",data:rows.map(r=>r[1][0]),backgroundColor:PAL[6],borderRadius:4},
+      {label:"Gastos fijos",data:rows.map(r=>r[1][1]),backgroundColor:PAL[4],borderRadius:4},
+      {label:"Utilidad",data:rows.map(r=>r[1][2]),backgroundColor:rows.map(r=>r[1][2]>=0?SEM.v:SEM.r),borderRadius:4}]},
+    options:{...base,indexAxis:"y",scales:{x:{stacked:true,ticks:{callback:v=>v+"%",font:{size:fs}},grid:{color:"#eef1f4"}},y:{stacked:true,ticks:{font:{size:fs}},grid:{display:false}}},
+      plugins:{legend:{position:"bottom",labels:{boxWidth:12,padding:12,font:{size:fs}}},tooltip:{callbacks:{label:c=>` ${c.dataset.label}: ${fN(c.parsed.x,1)} centavos de cada peso`}}}}};
+  const t=D.top.slice(0,10);
+  const topC={type:"bar",data:{labels:t.map(x=>x.id),datasets:[
+      {label:"Venta",data:t.map(x=>x.venta),backgroundColor:t.map(x=>x.margen==null?SEM.g:(x.margen<0?SEM.r:(x.margen<0.25?SEM.a:SEM.v))),borderRadius:5},
+      {label:"Contribución",data:t.map(x=>x.contrib),backgroundColor:"rgba(22,34,46,.22)",borderRadius:5}]},
+    options:{...base,indexAxis:"y",scales:{x:{ticks:{callback:money,font:{size:fs}},grid:{color:"#eef1f4"}},y:{ticks:{font:{size:fs}},grid:{display:false}}},
+      plugins:{legend:{position:"bottom",labels:{boxWidth:12,padding:12,font:{size:fs}}},tooltip:{callbacks:{label:c=>` ${c.dataset.label}: ${fSgn0(c.parsed.x)}`,afterBody:it=>{ const x=t[it[0].dataIndex]; return `${x.cliente} · ${fN(x.pz,0)} pzas · margen ${fPct(x.margen)}`; }}}}}};
+  return {pvr,estr,top:topC,nTop:t.length};
+}
+function buildDashEjecCharts(R){
+  if(typeof Chart==="undefined") return;
+  Chart.defaults.font.family="'IBM Plex Sans',sans-serif"; Chart.defaults.color="#5f6d7a";
+  const D=ejecData(R), C=ejecCharts(D,false);
+  const mk=(id,cfg)=>{const el=document.getElementById(id);if(!el)return;try{CHARTS.push(new Chart(el,cfg));}catch(e){console.warn(e);}};
+  mk("ch_ej_pvr",C.pvr); mk("ch_ej_estr",C.estr);
+  if(C.nTop) mk("ch_ej_top",C.top); else { const el=document.getElementById("ch_ej_top"); if(el) el.parentElement.innerHTML='<div class="note" style="margin:16px">Captura volúmenes en Costeo mensual o sube facturas del mes para ver los insertos con más venta.</div>'; }
+}
+// Imagen PNG de una gráfica para el PDF (sin animación, en alta resolución)
+function chartImg(cfg,w,h){
+  if(typeof Chart==="undefined") return null;
+  const cv=document.createElement("canvas"); cv.width=w; cv.height=h; cv.style.width=w+"px"; cv.style.height=h+"px";
+  const holder=document.createElement("div"); holder.style.cssText="position:fixed;left:-10000px;top:0;width:"+w+"px;height:"+h+"px"; holder.appendChild(cv); document.body.appendChild(holder);
+  let url=null; try{ const ch=new Chart(cv,cfg); url=ch.toBase64Image("image/png",1); ch.destroy(); }catch(e){ console.warn(e); }
+  holder.remove(); return url;
 }
 
 /* ===================== PRESUPUESTO Y PUNTO DE EQUILIBRIO ===================== */
@@ -3112,7 +3234,7 @@ function renderSection(id){
   cont.className="content"+(puedeEditar()?"":" ro");
   cont.innerHTML=(map[id]||secDashboard)(R);
   NF.applyPermissions();
-  if(id==="dashboard") buildDashboardCharts(R);
+  if(id==="dashboard") (dashVista==="ejec"?buildDashEjecCharts:buildDashboardCharts)(R);
   if(id==="presupuesto") buildPresupuestoCharts(R);
 }
 function renderAll(){renderNav();renderRol();renderKPIs();renderChain();renderSection(current);}
@@ -3708,6 +3830,87 @@ const app={
       const blob=new Blob([ab],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
       saveFile("Costeo_FOAM_Integral.xlsx", blob);
     }catch(e){console.error(e);alert("No se pudo generar el Excel.");}
+  },
+  setDashVista(v){ dashVista=v==="ejec"?"ejec":"oper"; try{ localStorage.setItem("nf_dashVista",dashVista); }catch(e){} renderSection("dashboard"); },
+  pdfSocios(){
+    if(!window.jspdf||!window.jspdf.jsPDF){alert("No se pudo cargar la librería de PDF. Revisa tu conexión e inténtalo de nuevo.");return;}
+    try{
+      const R=computeAt(periodoKey()); const D=ejecData(R), c=D.cur, k=D.k; const C=ejecCharts(D,true);
+      const {jsPDF}=window.jspdf; const doc=new jsPDF({orientation:"landscape",unit:"pt",format:"letter"});
+      const W=792,H=612,M=36, azul=[16,40,64], gris=[95,109,122];
+      const txt=h=>String(h).replace(/<[^>]+>/g,"").replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&#39;/g,"'");
+      const col={v:[31,157,85],a:[224,168,0],r:[207,63,82],g:[176,186,195],ok:[31,157,85],warn:[224,168,0],risk:[207,63,82],info:[43,84,136]};
+      const fuente=D.hasReal?"real con facturas":"presupuesto";
+      const encabezado=(titulo)=>{
+        doc.setFillColor(...azul); doc.rect(0,0,W,78,"F");
+        try{ const ls=document.getElementById('brandLogo'); if(ls&&ls.src){ doc.setFillColor(255,255,255); doc.roundedRect(M,11,72,56,6,6,"F"); doc.addImage(ls.src,'PNG',M+6,14,60,47); } }catch(e){}
+        doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(19); doc.text(titulo,M+90,38);
+        doc.setFont("helvetica","normal"); doc.setFontSize(10.5); doc.text(`North Foam · ${nombreMes(k)} · cifras de ${fuente}`,M+90,57);
+        doc.setFontSize(9); doc.text(new Date().toLocaleDateString("es-MX",{day:"2-digit",month:"long",year:"numeric"}),W-M,57,{align:"right"});
+      };
+      const tile=(x,y,w,h,lab,val,sub,luz)=>{
+        doc.setFillColor(247,249,251); doc.setDrawColor(221,227,232); doc.setLineWidth(.6); doc.roundedRect(x,y,w,h,7,7,"FD");
+        if(luz&&col[luz]){ doc.setFillColor(...col[luz]); doc.rect(x,y+8,3.5,h-16,"F"); }
+        doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.setTextColor(...gris); doc.text(lab,x+14,y+19);
+        doc.setFont("helvetica","bold"); doc.setFontSize(19); doc.setTextColor(22,34,46); doc.text(String(val),x+14,y+45);
+        if(sub){ doc.setFont("helvetica","normal"); doc.setFontSize(8.5); doc.setTextColor(...gris); doc.text(doc.splitTextToSize(String(sub),w-24)[0],x+14,y+62); }
+      };
+      // Página 1: indicadores y mensajes clave
+      encabezado("Reporte ejecutivo para socios");
+      const luzU=c.util==null?"g":(c.util>=0?"v":"r");
+      const estado=c.util==null?"Captura volúmenes o facturas para ver el resultado del mes.":(c.util>=0?(D.hasReal?"El mes ya cubre sus gastos y genera utilidad.":"El presupuesto del mes genera utilidad."):(D.hasReal?"El mes todavía no cubre sus gastos fijos.":"El presupuesto del mes no cubre los gastos fijos."));
+      doc.setFillColor(...col[luzU]); doc.rect(M,96,5,30,"F");
+      doc.setFont("helvetica","bold"); doc.setFontSize(14); doc.setTextColor(22,34,46); doc.text(estado,M+14,116);
+      const tw=(W-2*M-3*12)/4, th=74;
+      const seg=c.pe!=null&&c.ventas>0?(c.ventas-c.pe)/c.ventas:null;
+      [[D.hasReal?"Ventas facturadas":"Ventas presupuestadas",fSgn0(c.ventas),D.cumpl==null?"sin IVA":fPct(D.cumpl)+" de lo presupuestado",""],
+       ["Utilidad de operación",fSgn0(c.util),D.margenOp==null?"":fPct(D.margenOp)+" sobre ventas",luzU],
+       ["Punto de equilibrio",fSgn0(c.pe),D.avance==null?"ventas para no perder":"llevamos "+fPct(D.avance),D.avance==null?"g":(D.avance>=1?"v":(D.avance>=0.8?"a":"r"))],
+       ["Margen de contribución",fPct(c.razon),D.hasReal&&D.plan.razon!=null?"presupuestado "+fPct(D.plan.razon):"de cada peso vendido",""]]
+        .forEach((t,i)=>tile(M+i*(tw+12),142,tw,th,...t));
+      [["Gastos fijos del mes",fSgn0(c.fijos),"nómina, renta, energía fija e indirectos",""],
+       ["Margen de seguridad",fPct(seg),"cuánto pueden bajar las ventas",seg==null?"g":(seg>0?"v":"r")],
+       ["Costo variable",fSgn0(c.cv),c.ventas>0?fPct(c.cv/c.ventas)+" de las ventas":"",""],
+       ["Utilización de planta",R.utilPct==null?"—":fPct(R.utilPct),fN(R.capPractica,0)+" h de capacidad práctica",R.utilPct==null?"g":(R.utilPct<0.7?"a":"v")]]
+        .forEach((t,i)=>tile(M+i*(tw+12),228,tw,th,...t));
+      doc.setFont("helvetica","bold"); doc.setFontSize(13); doc.setTextColor(...azul); doc.text("Mensajes clave",M,332);
+      let y=352; doc.setFontSize(10.5);
+      D.M.slice(0,8).forEach(([t,h])=>{ const lines=doc.splitTextToSize(txt(h),W-2*M-22); if(y+lines.length*14>H-50) return;
+        doc.setFillColor(...(col[t]||col.info)); doc.circle(M+5,y-3.5,3.6,"F");
+        doc.setFont("helvetica","normal"); doc.setTextColor(30,40,50); doc.text(lines,M+18,y); y+=lines.length*14+6; });
+      // Página 2: presupuesto vs. real
+      doc.addPage(); encabezado("Resultados del mes");
+      const g1=chartImg(C.pvr,700,420), g2=chartImg(C.estr,700,420);
+      const gw=(W-2*M-16)/2, gh=gw*0.6;
+      doc.setFont("helvetica","bold"); doc.setFontSize(11.5); doc.setTextColor(...azul);
+      doc.text("Presupuesto vs. real",M,102); doc.text("¿A dónde va cada peso vendido?",M+gw+16,102);
+      if(g1) doc.addImage(g1,"PNG",M,110,gw,gh); if(g2) doc.addImage(g2,"PNG",M+gw+16,110,gw,gh);
+      const fila=(lab,p,r)=>[lab,fSgn0(p),D.hasReal?fSgn0(r):"—",D.hasReal&&p!=null&&r!=null?fSgn0(r-p):"—"];
+      doc.autoTable({startY:110+gh+16,margin:{left:M,right:M},head:[["Estado de resultados","Presupuesto","Real (facturas)","Diferencia"]],
+        body:[fila("Ventas",D.plan.ventas,D.real&&D.real.ventas),fila("(−) Costo variable",D.plan.cv,D.real&&D.real.cv),fila("= Margen de contribución",D.plan.contrib,D.real&&D.real.contrib),
+          fila("(−) Gastos fijos",D.plan.fijos,D.real&&D.real.fijos),fila("= Utilidad de operación",D.plan.util,D.real&&D.real.util),
+          ["Margen de contribución %",fPct(D.plan.razon),D.hasReal?fPct(D.real.razon):"—",""],["Punto de equilibrio",fSgn0(D.plan.pe),D.hasReal?fSgn0(D.real.pe):"—",""]],
+        styles:{font:"helvetica",fontSize:9.5,cellPadding:5,lineColor:[221,227,232],lineWidth:.5,textColor:[24,36,48],halign:"right"},
+        headStyles:{fillColor:azul,textColor:255,fontStyle:"bold"},columnStyles:{0:{halign:"left",fontStyle:"bold"}},
+        didParseCell:d=>{ if(d.section==="body"&&(d.row.index===2||d.row.index===4)) d.cell.styles.fillColor=[240,244,248]; }});
+      // Página 3: insertos con más venta
+      if(D.top.length){
+        doc.addPage(); encabezado("Insertos con más venta");
+        const g3=chartImg(C.top,1400,Math.max(360,C.nTop*56)); const ih=Math.min(250,(W-2*M)*Math.max(360,C.nTop*56)/1400);
+        if(g3) doc.addImage(g3,"PNG",M,96,W-2*M,ih);
+        doc.autoTable({startY:96+ih+12,margin:{left:M,right:M},head:[["Inserto","Cliente","Piezas","Venta","Contribución","Margen"]],
+          body:D.top.slice(0,10).map(x=>[x.id,x.cliente,fN(x.pz,0),fSgn0(x.venta),fSgn0(x.contrib),fPct(x.margen)]),
+          styles:{font:"helvetica",fontSize:9,cellPadding:4.5,lineColor:[221,227,232],lineWidth:.5,textColor:[24,36,48],halign:"right"},
+          headStyles:{fillColor:azul,textColor:255,fontStyle:"bold"},columnStyles:{0:{halign:"left",fontStyle:"bold"},1:{halign:"left"}},
+          didParseCell:d=>{ if(d.section==="body"&&d.column.index===5){ const m=D.top[d.row.index].margen; if(m!=null&&m<0.15) d.cell.styles.textColor=[207,63,82]; } }});
+      }
+      const tot=doc.internal.getNumberOfPages();
+      for(let p=1;p<=tot;p++){ doc.setPage(p); doc.setDrawColor(221,227,232); doc.setLineWidth(.5); doc.line(M,H-30,W-M,H-30);
+        doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.setTextColor(140,150,160);
+        doc.text("North Foam, S. de R.L. de C.V. · Reporte ejecutivo para socios · Confidencial",M,H-17);
+        doc.text("Página "+p+" de "+tot,W-M,H-17,{align:"right"}); }
+      saveFile("Reporte_socios_NorthFoam_"+k+".pdf",doc.output("blob"));
+    }catch(e){console.error(e);alert("No se pudo generar el PDF.");}
   },
   exportPDF(){
     if(!window.jspdf||!window.jspdf.jsPDF){alert("No se pudo cargar la librería de PDF. Revisa tu conexión e inténtalo de nuevo.");return;}
