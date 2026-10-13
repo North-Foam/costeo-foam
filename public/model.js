@@ -814,7 +814,9 @@ function secRuta(R){
   const insDe=id=>S.inserts.find(x=>String(x.id)===String(id));
   const shown=R.rutaCalc.map((r,i)=>({r,i}))
     .filter(x=>insCli.includes(String(x.r.ins)))
-    .filter(x=>rutaFilter==="(todos)"||String(x.r.ins)===rutaFilter);
+    .filter(x=>rutaFilter==="(todos)"||String(x.r.ins)===rutaFilter)
+    // Siempre de menor a mayor: por inserto y, dentro de cada inserto, por número de operación
+    .sort((a,b)=>String(a.r.ins).localeCompare(String(b.r.ins),undefined,{numeric:true})||(num(a.r.op)-num(b.r.op))||(a.i-b.i));
   const rows=shown.map(({r,i})=>`<tr>
     <td class="l">${sel(`ruta.${i}.ins`,S.inserts.map(x=>x.id))}</td>
     <td class="l" title="Se define en Costeo de placas">${escapeHtml(clienteLabel(insDe(r.ins)))}</td>
