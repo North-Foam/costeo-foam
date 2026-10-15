@@ -4,7 +4,7 @@ import defaults from './defaults.json' with { type: 'json' };
 const num = z.number().finite().min(-1e12).max(1e12).nullable();
 const text = z.string().max(500).refine(s => !/[<>\u0000-\u0008]/.test(s), 'No se permite código HTML en los campos.');
 const key = z.string().max(200).refine(s => !['__proto__', 'constructor', 'prototype'].includes(s) && !/[<>\u0000]/.test(s));
-const id = z.string().regex(/^[\p{L}\p{N}_ -]{1,80}$/u, 'Usa letras, números, espacios, guion o guion bajo en el número de inserto.').refine(s => !['__proto__', 'constructor', 'prototype'].includes(s));
+const id = z.string().regex(/^[\p{L}\p{N}_ .\/#()+,-]{1,80}$/u, 'Usa letras, números, espacios y . / # ( ) + , - _ en el número de inserto.').refine(s => !['__proto__', 'constructor', 'prototype'].includes(s));
 const numericRecord = z.record(key, num);
 const numbers = keys => Object.fromEntries(keys.map(k => [k, num.optional()]));
 const material = z.object({ nombre: text.optional(), bloque: z.boolean().optional(), ...numbers(['precio','grosor','ancho','largo','costo']) }).strict();
