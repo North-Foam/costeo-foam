@@ -864,6 +864,9 @@ function nextInsId(){
   const ids=new Set(S.inserts.map(x=>String(x.id))); let n=1;
   while(ids.has("NUEVO-"+n)) n++; return "NUEVO-"+n;
 }
+// Número de inserto / parte: letras, números, espacios y . / # ( ) + , - _ (máx. 80)
+const ID_OK=v=>/^[\p{L}\p{N}_ .\/#()+,-]{1,80}$/u.test(v)&&!["__proto__","constructor","prototype"].includes(v);
+const ID_MSG="El número de parte admite letras, números, espacios y . / # ( ) + , - _ (máx. 80 caracteres)";
 function clienteDe(ins){ return (ins&&ins.cliente)?String(ins.cliente).trim():""; }
 function clienteLabel(ins){ return clienteDe(ins)||"Sin cliente"; }
 // Llave para comparar clientes sin importar mayúsculas, acentos, puntos o espacios
@@ -3709,6 +3712,7 @@ const app={
   addNamedInsert(){
     const el=document.getElementById("newInsId"); const v=(el?el.value:"").trim();
     if(!v){ toast("Escribe el número del nuevo inserto"); if(el)el.focus(); return; }
+    if(!ID_OK(v)){ toast(ID_MSG); if(el)el.focus(); return; }
     if(S.inserts.some(x=>String(x.id)===v)){
       toast("Ya existe el inserto "+v+"; lo abrí");
       const ex=S.inserts.find(x=>String(x.id)===v); if(!pasaCliente(ex)) cliVista="(todos)";
@@ -3861,7 +3865,7 @@ const app={
   cqDelParam(lista,k){ ensureCotizador(); S.cotParams[lista].splice(k,1); save(); renderSection("cotizador"); },
   cqAlCatalogo(){ const i=cqActual(); if(i<0) return; const cq=S.cotizaciones[i]; const cot=cqProd();
     const np=String(cot.np||"").trim(); if(!np){ toast("Captura primero el número de parte / inserto"); return; }
-    if(!/^[\p{L}\p{N}_ -]{1,80}$/u.test(np)){ toast("El número de parte sólo admite letras, números, espacios, guion o guion bajo"); return; }
+    if(!ID_OK(np)){ toast(ID_MSG); return; }
     if(S.inserts.some(x=>String(x.id)===np)){ toast("Ya existe el inserto "+np+" en el catálogo"); return; }
     const R=computeAt(periodoKey()); const C=cqCalc(cot,R); const N1=C.niveles[0];
     const slots=[], idxDe=p=>{ const key=p.M.cat?p.M.nombre:("manual|"+p.M.largo+"|"+p.M.ancho+"|"+p.M.grosor+"|"+p.M.precio);
