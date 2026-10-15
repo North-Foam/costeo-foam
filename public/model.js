@@ -866,6 +866,11 @@ function nextInsId(){
 }
 function clienteDe(ins){ return (ins&&ins.cliente)?String(ins.cliente).trim():""; }
 function clienteLabel(ins){ return clienteDe(ins)||"Sin cliente"; }
+// Llave para comparar clientes sin importar mayúsculas, acentos, puntos o espacios
+function cliKey(s){ return String(s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[.,]/g," ").replace(/\s+/g," ").trim().toUpperCase(); }
+function clientesLista(){ const m=new Map();
+  (S.clientes||[]).concat(S.inserts.map(clienteDe)).forEach(c=>{ c=String(c||"").trim(); if(c&&!m.has(cliKey(c))) m.set(cliKey(c),c); });
+  return [...m.values()].sort((a,b)=>a.localeCompare(b,undefined,{sensitivity:"base"})); }
 function ensureClientes(){
   ensureFacturas(); ensureProduccion(); ensureCompras(); ensureCotizador();
   if(S.moParams){ const d=NOM_DEF(); Object.keys(d).forEach(k=>{ if(S.moParams[k]==null) S.moParams[k]=d[k]; }); if(S.moParams.capturaNeto==null) S.moParams.capturaNeto=true; }
@@ -950,12 +955,18 @@ function secDiseno(R){
   // Filtro por cliente: sólo se listan los insertos del cliente elegido
   clienteSelector(); const delCli=S.inserts.filter(pasaCliente);
   if(delCli.length&&!delCli.some(x=>String(x.id)===String(disenoSel))) disenoSel=String(delCli[0].id);
+  if(cliVista!=="(todos)"&&!delCli.length) return head("Costeo de placas — optimización de corte","INSERTO","")
+    +`<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:10px">${clienteSelector("setCliDiagrama")}<span class="hint">0 insertos de ${escapeHtml(cliVista)}</span></div>
+    <div class="note">El cliente <b>${escapeHtml(cliVista)}</b> aún no tiene insertos. Escribe el número del inserto y oprime <b>+ Crear inserto</b>; quedará asignado a este cliente. También puedes elegir <b>(todos)</b> y asignar un inserto existente con “Cliente de este inserto”.</div>
+    <div style="display:flex;gap:6px;align-items:center;margin-top:10px">
+      <input id="newInsId" class="f txt" style="width:170px" placeholder="Número del nuevo inserto" data-enter="addNamedInsert()">
+      <button class="btn primary" data-click="addNamedInsert()">+ Crear inserto</button></div>`;
   const idx=S.inserts.findIndex(x=>String(x.id)===String(disenoSel));
   const ins=S.inserts[idx]; ensureDiseno(ins);
   const dz=disenoCalc(ins)||{mats:ins.diseno.materiales.map(matEff),piezas:[],totalUSD:0};
   const it=R.integral.find(x=>String(x.ins.id)===String(disenoSel))||{};
   const catNames=(S.catalogo||[]).map(m=>m.nombre);
-  const insOpts=(delCli.length?delCli:S.inserts).map(x=>`<option ${String(x.id)===String(disenoSel)?'selected':''}>${escapeHtml(String(x.id))}</option>`).join("");
+  const insOpts=(cliVista==="(todos)"?S.inserts:delCli).map(x=>`<option ${String(x.id)===String(disenoSel)?'selected':''}>${escapeHtml(String(x.id))}</option>`).join("");
 
   const matRows=[0,1,2].map(k=>{
     const slot=ins.diseno.materiales[k]||{}; const eff=matEff(slot);
@@ -1009,7 +1020,7 @@ function secDiseno(R){
       <div class="exsel" style="display:inline-flex"><span>Cliente de este inserto</span>
         <select data-change="setClienteInserto(${idx},this.value)">
           <option value="">Sin cliente</option>
-          ${[...new Set((S.clientes||[]).concat(clienteDe(ins)?[clienteDe(ins)]:[]))].map(c=>`<option ${clienteDe(ins)===c?'selected':''}>${escapeHtml(c)}</option>`).join("")}
+          ${clientesLista().map(c=>`<option ${clienteDe(ins)&&cliKey(clienteDe(ins))===cliKey(c)?'selected':''}>${escapeHtml(c)}</option>`).join("")}
         </select></div>
       <div style="display:flex;gap:6px;align-items:center">
         <input id="newCliId" class="f txt" style="width:150px" placeholder="Nuevo cliente" data-enter="addCliente()">
@@ -3008,14 +3019,14 @@ function pedirPin(msg,onOk){
 }
 function clienteSelector(fn){
   const cur=cliVista||"(todos)";
-  const lista=["(todos)"].concat([...new Set(S.inserts.map(i=>clienteLabel(i)))].sort());
-  if(!lista.includes(cur)) cliVista="(todos)";
+  const lista=["(todos)"].concat(clientesLista()).concat(S.inserts.some(i=>!clienteDe(i))?["Sin cliente"]:[]);
+  if(!lista.includes(cur)){ const eq=lista.find(c=>cliKey(c)===cliKey(cur)); cliVista=eq||"(todos)"; }
   return `<div class="exsel" style="display:inline-flex"><span>Cliente</span>
     <select data-change="${fn||'setCliVista'}(this.value)">
       ${lista.map(c=>`<option ${c===cliVista?'selected':''}>${escapeHtml(c)}</option>`).join("")}
     </select></div>`;
 }
-function pasaCliente(ins){ return cliVista==="(todos)"||clienteLabel(ins)===cliVista; }
+function pasaCliente(ins){ if(cliVista==="(todos)") return true; if(cliVista==="Sin cliente") return !clienteDe(ins); return !!clienteDe(ins)&&cliKey(clienteDe(ins))===cliKey(cliVista); }
 function periodoSelector(){
   if(/^\d{4}-\d{2}$/.test(String(S.periodoVista||""))&&S.periodoVista!==periodoKey()) S.periodoVista=periodoKey();
   const cur=S.periodoVista||"catalogo";
@@ -3548,11 +3559,13 @@ const app={
     const el=document.getElementById("newCliId"); const v=(el?el.value:"").trim();
     if(!v){ toast("Escribe el nombre del cliente"); if(el)el.focus(); return; }
     if(!Array.isArray(S.clientes)) S.clientes=[];
-    if(!S.clientes.includes(v)) S.clientes.push(v);
+    const ya=clientesLista().find(c=>cliKey(c)===cliKey(v));
+    if(!ya) S.clientes.push(v);
     S.clientes.sort((a,b)=>a.localeCompare(b,undefined,{sensitivity:"base"}));
-    const i=S.inserts.findIndex(x=>String(x.id)===String(disenoSel));
-    if(i>=0) S.inserts[i].cliente=v;
-    save(); renderSection("placas"); toast("Cliente "+v+" asignado a "+disenoSel);
+    // Ya no se reasigna el inserto abierto: sólo se da de alta el cliente y se filtra por él
+    cliVista=ya||v; if(el) el.value="";
+    const l=S.inserts.filter(pasaCliente); if(l.length) disenoSel=String(l[0].id);
+    save(); renderSection("placas"); toast(ya?"El cliente "+ya+" ya existía; mostrando sus insertos":"Cliente "+v+" agregado. Crea sus insertos con + Crear inserto");
   },
   setCliFiltro(v){ cliFiltro=v; renderSection("mes"); },
   indCopiarBase(){ const k=S.periodoVista||"catalogo"; if(k==="catalogo") return;
