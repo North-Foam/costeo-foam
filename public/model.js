@@ -947,12 +947,15 @@ function secDiseno(R){
       <input id="newInsId" class="f txt" style="width:170px" placeholder="Número del nuevo inserto" data-enter="addNamedInsert()">
       <button class="btn primary" data-click="addNamedInsert()">+ Crear inserto</button></div>`;
   if(disenoSel==null||!S.inserts.some(x=>String(x.id)===String(disenoSel))) disenoSel=String(S.inserts[0].id);
+  // Filtro por cliente: sólo se listan los insertos del cliente elegido
+  clienteSelector(); const delCli=S.inserts.filter(pasaCliente);
+  if(delCli.length&&!delCli.some(x=>String(x.id)===String(disenoSel))) disenoSel=String(delCli[0].id);
   const idx=S.inserts.findIndex(x=>String(x.id)===String(disenoSel));
   const ins=S.inserts[idx]; ensureDiseno(ins);
   const dz=disenoCalc(ins)||{mats:ins.diseno.materiales.map(matEff),piezas:[],totalUSD:0};
   const it=R.integral.find(x=>String(x.ins.id)===String(disenoSel))||{};
   const catNames=(S.catalogo||[]).map(m=>m.nombre);
-  const insOpts=S.inserts.map(x=>`<option ${String(x.id)===String(disenoSel)?'selected':''}>${escapeHtml(String(x.id))}</option>`).join("");
+  const insOpts=(delCli.length?delCli:S.inserts).map(x=>`<option ${String(x.id)===String(disenoSel)?'selected':''}>${escapeHtml(String(x.id))}</option>`).join("");
 
   const matRows=[0,1,2].map(k=>{
     const slot=ins.diseno.materiales[k]||{}; const eff=matEff(slot);
@@ -996,25 +999,28 @@ function secDiseno(R){
 
   return head("Costeo de placas — optimización de corte","INSERTO (hoja individual del Excel)",
     "Aquí capturas lo que antes vivía en la hoja de cada inserto: las placas de foam (hasta 3 materiales), las piezas (base, laterales, tapa…) con sus medidas y cantidad, y el aprovechamiento por placa. El costo del material resultante alimenta automáticamente el <b>Costeo mensual</b>. Las medidas aceptan <b>fracciones</b> (ej. <b>17 3/4</b>, <b>3/8</b>) o decimales. Piezas por placa = máximo entre las dos orientaciones; puedes forzar el valor real de tu corte optimizado.")
-  +`<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
-      <div class="exsel" style="display:inline-flex"><span>Cliente</span>
+  +`<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+      ${clienteSelector("setCliDiagrama")}
+      <div class="exsel" style="display:inline-flex"><span>Inserto</span>
+        <select data-change="setDiseno(this.value)">${insOpts}</select></div>
+      <span class="hint">${cliVista==="(todos)"?S.inserts.length+" insertos de todos los clientes":delCli.length+" inserto(s) de "+escapeHtml(cliVista)}</span>
+    </div>
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
+      <div class="exsel" style="display:inline-flex"><span>Cliente de este inserto</span>
         <select data-change="setClienteInserto(${idx},this.value)">
           <option value="">Sin cliente</option>
-          ${(S.clientes||[]).map(c=>`<option ${clienteDe(ins)===c?'selected':''}>${escapeHtml(c)}</option>`).join("")}
+          ${[...new Set((S.clientes||[]).concat(clienteDe(ins)?[clienteDe(ins)]:[]))].map(c=>`<option ${clienteDe(ins)===c?'selected':''}>${escapeHtml(c)}</option>`).join("")}
         </select></div>
       <div style="display:flex;gap:6px;align-items:center">
         <input id="newCliId" class="f txt" style="width:150px" placeholder="Nuevo cliente" data-enter="addCliente()">
         <button class="btn" data-click="addCliente()">+ Cliente</button>
       </div>
-      <div class="exsel" style="display:inline-flex"><span>Inserto</span>
-        <select data-change="setDiseno(this.value)">${insOpts}</select></div>
       <button class="btn" style="border-color:var(--red);color:var(--red)" data-click="delInsert(${idx})">Eliminar inserto</button>
       <div style="display:flex;gap:6px;align-items:center">
         <input id="newInsId" class="f txt" style="width:170px" placeholder="Número del nuevo inserto" data-enter="addNamedInsert()">
         <button class="btn primary" data-click="addNamedInsert()">+ Crear inserto</button>
       </div>
     </div>
-    <div class="hint" style="margin:-8px 0 12px">Insertos de <b>${escapeHtml(clienteLabel(ins))}</b>: ${escapeHtml(S.inserts.filter(x=>clienteLabel(x)===clienteLabel(ins)).map(x=>String(x.id)).join(", ")||"—")}</div>
 
     <div class="card"><h3>Placas / materiales del inserto (hasta 3)</h3><div class="body"><div class="scroll" style="border:0;box-shadow:none">
       <table><thead><tr><th class="l">#</th><th class="l">Material (catálogo o manual)</th><th>Precio placa $</th><th>Largo in</th><th>Ancho in</th><th>Grosor in</th><th>Área placa</th></tr></thead>
@@ -3537,7 +3543,7 @@ const app={
       save(); renderKPIs(); renderChain(); renderSection(current); toast("Inserto "+(id||"")+" eliminado");
     }, "Eliminar inserto");
   },
-  setClienteInserto(idx,v){ S.inserts[idx].cliente=(v||"").trim()||null; ensureClientes(); save(); renderKPIs(); renderChain(); renderSection("placas"); },
+  setClienteInserto(idx,v){ S.inserts[idx].cliente=(v||"").trim()||null; if(cliVista!=="(todos)") cliVista=clienteLabel(S.inserts[idx]); ensureClientes(); save(); renderKPIs(); renderChain(); renderSection("placas"); },
   addCliente(){
     const el=document.getElementById("newCliId"); const v=(el?el.value:"").trim();
     if(!v){ toast("Escribe el nombre del cliente"); if(el)el.focus(); return; }
@@ -3591,7 +3597,7 @@ const app={
     pedirPin("Escribe el PIN actual para cambiarlo.",()=>crearPin("Nuevo PIN de seguridad")); },
   setCliRuta(v){ cliVista=v; rutaFilter="(todos)"; renderSection("ruta"); },
   setCliVista(v){ cliVista=v; renderSection(current); },
-  setCliDiagrama(v){ cliVista=v; const l=S.inserts.filter(pasaCliente); if(l.length&&!l.some(x=>String(x.id)===String(disenoSel))) disenoSel=String(l[0].id); renderSection("diagrama"); },
+  setCliDiagrama(v){ cliVista=v; const l=S.inserts.filter(pasaCliente); if(l.length&&!l.some(x=>String(x.id)===String(disenoSel))) disenoSel=String(l[0].id); renderSection(current==="placas"?"placas":"diagrama"); },
   abrirAcceso(){ NF.openAccount(); },
   setPeriodoVista(v){ S.periodoVista=v||"catalogo"; save(); renderKPIs(); renderChain(); renderSection(current); toast("Consultando "+etiquetaPeriodo(S.periodoVista)); },
   setPresuPeriodo(v){ S.periodoVista=v||"catalogo"; save(); renderKPIs(); renderChain(); renderSection("presupuesto"); },
@@ -3692,9 +3698,10 @@ const app={
     if(!v){ toast("Escribe el número del nuevo inserto"); if(el)el.focus(); return; }
     if(S.inserts.some(x=>String(x.id)===v)){
       toast("Ya existe el inserto "+v+"; lo abrí");
+      const ex=S.inserts.find(x=>String(x.id)===v); if(!pasaCliente(ex)) cliVista="(todos)";
       disenoSel=v; renderSection("placas"); return;
     }
-    S.inserts.push({id:v,q25:null,q26:null,diseno:{materiales:[{},{},{}],piezas:[]}});
+    S.inserts.push({id:v,q25:null,q26:null,cliente:(cliVista&&cliVista!=="(todos)"&&cliVista!=="Sin cliente")?cliVista:null,diseno:{materiales:[{},{},{}],piezas:[]}});
     S.ruta.push(...stdRutaOps(v));
     sortInserts();
     disenoSel=v; save(); renderKPIs(); renderChain(); renderSection("placas"); toast("Inserto "+v+" creado");
