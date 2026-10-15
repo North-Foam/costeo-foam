@@ -1620,8 +1620,9 @@ function cqContactosHTML(cot,pth){
 }
 // Al cambiar la familia de una pieza, propone el primer material de esa familia
 document.addEventListener("change",e=>{
-  const el=e.target; const m=/^cotizaciones\.(\d+)\.piezas\.(\d+)\.fam$/.exec((el.dataset&&el.dataset.path)||""); if(!m) return;
-  const p=((S.cotizaciones||[])[+m[1]]||{}).piezas; const pz=p&&p[+m[2]]; if(!pz) return;
+  const el=e.target; const m=/^cotizaciones\.(\d+)(?:\.productos\.(\d+))?\.piezas\.(\d+)\.fam$/.exec((el.dataset&&el.dataset.path)||""); if(!m) return;
+  const c0=(S.cotizaciones||[])[+m[1]]; const pr=c0?(m[2]!=null?(c0.productos||[])[+m[2]]:c0):null;
+  const p=pr&&pr.piezas; const pz=p&&p[+m[3]]; if(!pz) return;
   if(pz.mat&&pz.mat!=="(manual)"&&famDe(pz.mat)===pz.fam) return;
   const c=(S.catalogo||[]).find(x=>famDe(x.nombre)===pz.fam); pz.mat=c?c.nombre:"(manual)"; save(); renderSection(current);
 });
@@ -1631,6 +1632,16 @@ function cqNumFolio(f){ const m=/^NF-C-(\d+)$/.exec(String(f||"")); return m?+m[
 function cqSiguienteFolio(){ ensureCotizador(); const n=Math.max(num(S.cotParams.ultimoFolio),...S.cotizaciones.map(c=>cqNumFolio(c.folio)),0)+1; return "NF-C-"+String(n).padStart(4,"0"); }
 function cqFolioBorrador(){ const n=Math.max(0,...S.cotizaciones.map(c=>{ const m=/^BORRADOR-(\d+)$/.exec(String(c.folio||"")); return m?+m[1]:0; }))+1; return "BORRADOR-"+n; }
 function cqEtiqueta(c){ return cqEsFirme(c)?c.folio:"Borrador "+String(c.folio||"").replace(/^BORRADOR-/,""); }
+// Una cotización puede llevar varios productos: el producto 1 son los campos de la cotización y los demás van en cot.productos
+var cqProdSel=0;
+function cqProds(cot){ return [cot].concat(Array.isArray(cot&&cot.productos)?cot.productos:[]); }
+function cqProdIdx(cot){ const n=cqProds(cot).length; if(!(cqProdSel>=0&&cqProdSel<n)) cqProdSel=0; return cqProdSel; }
+function cqProdPth(i,j){ return j===0?`cotizaciones.${i}`:`cotizaciones.${i}.productos.${j-1}`; }
+function cqProd(){ const i=cqActual(); if(i<0) return null; const c=S.cotizaciones[i]; return cqProds(c)[cqProdIdx(c)]; }
+function cqProdNombre(p,j){ return "Producto "+(j+1)+(p.desc?" · "+p.desc:(p.np?" · "+p.np:(p.estilo?" · "+p.estilo:""))); }
+function cqProdNuevo(){ const pe=(S.catalogo||[]).find(m=>famDe(m.nombre)==="Polietileno (PE)");
+  return {desc:"",np:"",estilo:"",v1:100,v2:500,v3:1000,margen:null,merma:0,suajeCosto:null,suajeModo:"amortizar",
+    piezas:[{desc:"Plancha",fam:pe?"Polietileno (PE)":"",mat:pe?pe.nombre:"(manual)",L:null,A:null,G:null,cant:1}],ops:[{c:S.cotParams.cortes[0]?S.cotParams.cortes[0].n:"",veces:1}],extras:[]}; }
 function cqActual(){ ensureCotizador(); let i=S.cotizaciones.findIndex(c=>c.folio===cqSel); if(i<0&&S.cotizaciones.length){ i=S.cotizaciones.length-1; cqSel=S.cotizaciones[i].folio; } return i; }
 function cqMat(p){ // material efectivo de la pieza
   if(p.mat&&p.mat!=="(manual)"){ const c=catFind(p.mat)||{}; return {nombre:p.mat,fam:famDe(p.mat),largo:num(c.largo),ancho:num(c.ancho),grosor:num(c.grosor),precio:num(c.costo),bloque:!!(c.bloque||esBloqueMat(p.mat)),cat:true}; }
@@ -1684,14 +1695,15 @@ function cqCalc(cot,R){
 function secCotizador(R){
   ensureCotizador(); const i=cqActual(); const lista=S.cotizaciones;
   const sel=`<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
-      ${lista.length?`<div class="exsel" style="display:inline-flex"><span>Cotización</span><select data-change="cqSelect(this.value)">${lista.slice().reverse().map(c=>`<option value="${escapeHtml(c.folio)}" ${c.folio===cqSel?'selected':''}>${escapeHtml(cqEtiqueta(c)+" · "+(c.cliente||"sin cliente")+(c.desc?" · "+c.desc:""))}</option>`).join("")}</select></div>`:""}
+      ${lista.length?`<div class="exsel" style="display:inline-flex"><span>Cotización</span><select data-change="cqSelect(this.value)">${lista.slice().reverse().map(c=>`<option value="${escapeHtml(c.folio)}" ${c.folio===cqSel?'selected':''}>${escapeHtml(cqEtiqueta(c)+" · "+(c.cliente||"sin cliente")+(c.desc?" · "+c.desc:"")+(cqProds(c).length>1?" (+"+(cqProds(c).length-1)+" producto(s))":""))}</option>`).join("")}</select></div>`:""}
       <button class="btn primary" data-click="cqNueva()">+ Nueva cotización</button>
       ${i>=0&&!cqEsFirme(lista[i])?`<button class="btn" style="border-color:var(--green);color:var(--green)" data-click="cqFirme()">Emitir en firme (asigna folio ${escapeHtml(cqSiguienteFolio())})</button>`:""}
       ${i>=0?`<button class="rowbtn" style="margin:0" data-click="cqDuplicar()">Duplicar</button><button class="rowbtn" style="margin:0;border-color:var(--red);color:var(--red)" data-click="cqEliminar()">Eliminar</button>`:""}
     </div>`;
   const lead="Cotiza cualquier inserto sin darlo de alta: elige el estilo, las piezas con su material (polietileno, poliuretano, convoluted, XLPE, EVA, antiestático…) y los cortes. Usa el mismo cálculo de placas del Costeo de placas y las tarifas de la planta del mes de trabajo, y te da el precio por volumen. Cuando el cliente la acepta, la pasas al catálogo con un botón.";
   if(i<0) return head("Cotizador","COTIZACIÓN GENERAL",lead)+sel+`<div class="note">Aún no hay cotizaciones. Oprime <b>+ Nueva cotización</b>.</div>`+cqParamsHTML();
-  const cot=lista[i]; const C=cqCalc(cot,R); const pth=`cotizaciones.${i}`;
+  const cot=lista[i]; const prods=cqProds(cot), pj=cqProdIdx(cot), prod=prods[pj];
+  const C=cqCalc(prod,R); const pth=cqProdPth(i,pj), cpth=`cotizaciones.${i}`;
   const cat=S.catalogo||[];
   const pRows=C.piezas.map((p,j)=>{ const opts=["(manual)"].concat(cat.filter(m=>!p.fam||famDe(m.nombre)===p.fam).map(m=>m.nombre));
     const man=!p.M.cat;
@@ -1717,7 +1729,7 @@ function secCotizador(R){
       <td class="mono val-calc">${fMXN(o.rate*60)}</td>
       <td class="mono val-calc" style="font-weight:700">${N1?fMXN((o.prep/N1.Q+o.min)*o.rate):'—'}</td>
       <td><button class="del" data-click="cqDel('ops',${j})">✕</button></td></tr>`).join("");
-  const eRows=(cot.extras||[]).map((x,j)=>`<tr><td class="l">${inp(`${pth}.extras.${j}.n`,{type:"text",cls:"txt wide"})}</td><td>${inp(`${pth}.extras.${j}.costo`)}</td>
+  const eRows=(prod.extras||[]).map((x,j)=>`<tr><td class="l">${inp(`${pth}.extras.${j}.n`,{type:"text",cls:"txt wide"})}</td><td>${inp(`${pth}.extras.${j}.costo`)}</td>
       <td><button class="del" data-click="cqDel('extras',${j})">✕</button></td></tr>`).join("");
   const col=(lab,fn,cls)=>`<tr${cls?` class="${cls}"`:''}><td class="l">${lab}</td>${C.niveles.map(n=>`<td class="mono val-calc">${fn(n)}</td>`).join("")}</tr>`;
   const placasTxt=n=>Object.keys(n.placas).map(k=>`${escapeHtml(k)}: ${Math.ceil(n.placas[k]-1e-9)}`).join("<br>")||"—";
@@ -1735,7 +1747,7 @@ function secCotizador(R){
       ${col("Total del pedido USD",n=>n.totalMXN==null||!(C.tc>0)?'—':fUSD(n.totalMXN/C.tc))}
       ${col("Minutos-persona por pieza",n=>fN(n.minPza,2))}${col("Horas de planta del pedido",n=>fN(n.horas,1))}
       ${col("Placas a comprar",placasTxt)}
-    </tbody></table>${!C.amort&&num(cot.suajeCosto)>0?`<div class="note" style="margin-top:8px">Cargo único de suaje: <b>${fUSD(num(cot.suajeCosto))}</b> (${fMXN(C.suajeMXN)}), se cobra aparte del precio por pieza.</div>`:''}`
+    </tbody></table>${!C.amort&&num(prod.suajeCosto)>0?`<div class="note" style="margin-top:8px">Cargo único de suaje: <b>${fUSD(num(prod.suajeCosto))}</b> (${fMXN(C.suajeMXN)}), se cobra aparte del precio por pieza.</div>`:''}`
     :`<div class="note">Captura al menos un volumen para ver el precio.</div>`;
   return head("Cotizador","COTIZACIÓN GENERAL · "+escapeHtml(cqEsFirme(cot)?cot.folio:"BORRADOR (sin folio)"),lead)+sel
     +(cqEsFirme(cot)?"":`<div class="note" style="margin:0 0 12px;border-color:var(--amber)">Esta cotización es un <b>borrador</b>: todavía no consume número de folio. Cuando esté lista, emítela en firme y se le asigna el consecutivo <b>${escapeHtml(cqSiguienteFolio())}</b>; el PDF para el cliente sólo sale de cotizaciones en firme.</div>`)
@@ -1746,22 +1758,35 @@ function secCotizador(R){
       ${hcard("Material por pieza",fUSD(C.matUSD),C.piezas.length+" pieza(s) · "+(C.incompleto?"falta material":"completo"),C.incompleto?"a":"v")}
       ${hcard("Tipo de cambio",fN(C.tc,4),"del mes de trabajo · "+escapeHtml(nombreMes(periodoKey())))}
     </div>
-    ${cqContactosHTML(cot,pth)}
+    ${cqContactosHTML(cot,cpth)}
+    <div class="card" style="margin-bottom:16px"><h3>Productos de esta cotización <span class="hint" style="font-weight:400">(${prods.length} · todos salen en el mismo PDF y con el mismo folio)</span></h3><div class="pad">
+      <table class="fija"><thead><tr><th class="l" style="width:34%">Producto</th><th class="l">No. de parte</th><th>Volúmenes</th><th>Precio 1er volumen USD</th><th>Estado</th><th></th></tr></thead><tbody>
+      ${prods.map((p,j)=>{ const Cj=j===pj?C:cqCalc(p,R); const n1=Cj.niveles[0]; const okj=!Cj.incompleto&&Cj.niveles.length&&!Cj.niveles.some(n=>n.finalUSD==null);
+        return `<tr style="${j===pj?'background:var(--accent-soft,#eef4fb)':''}"><td class="l"><b>${escapeHtml(cqProdNombre(p,j))}</b></td><td class="l mono">${escapeHtml(p.np||"—")}</td>
+          <td class="mono val-calc">${Cj.niveles.map(n=>fN(n.Q,0)).join(" / ")||"—"}</td><td class="mono val-calc">${n1&&n1.finalUSD!=null?fUSD(n1.finalUSD):"—"}</td>
+          <td>${okj?'<span class="pill ok">Completo</span>':'<span class="pill rev">Falta captura</span>'}</td>
+          <td>${j===pj?'<span class="hint">editando</span>':`<button class="rowbtn" style="margin:0" data-click="cqProdVer(${j})">Editar</button>`}</td></tr>`; }).join("")}
+      </tbody></table>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+        <button class="btn primary" data-click="cqAddProd()">+ Agregar producto a la cotización</button>
+        <button class="rowbtn" style="margin:0" data-click="cqDupProd()">Duplicar este producto</button>
+        ${prods.length>1?`<button class="rowbtn" style="margin:0;border-color:var(--red);color:var(--red)" data-click="cqDelProd()">Quitar este producto</button>`:""}
+      </div></div></div>
     <div class="grid2">
-      <div class="card"><h3>Datos de la cotización</h3><div class="pad"><table>
+      <div class="card"><h3>${escapeHtml(cqProdNombre(prod,pj))}${prods.length>1?' <span class="hint" style="font-weight:400">· editando</span>':''}</h3><div class="pad"><table>
         <tr><td class="l">Descripción</td><td>${inp(`${pth}.desc`,{type:"text",cls:"txt wide"})}</td></tr>
         <tr><td class="l">Número de parte / inserto <span class="hint">(para pasarlo al catálogo)</span></td><td>${inp(`${pth}.np`,{type:"text",cls:"txt wide"})}</td></tr>
-        <tr><td class="l">Estado</td><td>${selRaw(`${pth}.estado`,["Borrador","Enviada","Ganada","Perdida"],cot.estado||"Borrador")}</td></tr>
-        <tr><td class="l">Estilo de inserto</td><td><div style="display:flex;gap:6px;align-items:center">${selRaw(`${pth}.estilo`,[""].concat(CQ_ESTILOS().map(e=>e.n)),cot.estilo||"")}
+        <tr><td class="l">Estilo de inserto</td><td><div style="display:flex;gap:6px;align-items:center">${selRaw(`${pth}.estilo`,[""].concat(CQ_ESTILOS().map(e=>e.n)),prod.estilo||"")}
           <button class="rowbtn" style="margin:0" data-click="cqAplicarEstilo()">Aplicar estilo</button></div></td></tr>
         <tr><td class="l">Volúmenes a cotizar (piezas)</td><td><div style="display:flex;gap:4px">${inp(`${pth}.v1`)}${inp(`${pth}.v2`,{ph:"opcional"})}${inp(`${pth}.v3`,{ph:"opcional"})}</div></td></tr>
         <tr><td class="l">Margen objetivo <span class="hint">(vacío = global)</span></td><td>${inp(`${pth}.margen`,{pct:true,ph:fN(num(S.control.margenObj)*100,1)})}<span class="unit">%</span></td></tr>
         <tr><td class="l">Merma de material</td><td>${inp(`${pth}.merma`,{pct:true,ph:"0"})}<span class="unit">%</span></td></tr>
-        <tr><td class="l">Notas</td><td>${inp(`${pth}.notas`,{type:"text",cls:"txt wide"})}</td></tr>
+        <tr><td class="l">Estado de la cotización</td><td>${selRaw(`${cpth}.estado`,["Borrador","Enviada","Ganada","Perdida"],cot.estado||"Borrador")}</td></tr>
+        <tr><td class="l">Notas de la cotización <span class="hint">(salen en el PDF)</span></td><td>${inp(`${cpth}.notas`,{type:"text",cls:"txt wide"})}</td></tr>
       </table></div></div>
       <div class="card"><h3>Suaje y extras por pieza</h3><div class="pad"><table>
         <tr><td class="l">Costo del suaje (US$)</td><td>${inp(`${pth}.suajeCosto`,{ph:"0"})}</td></tr>
-        <tr><td class="l">El suaje se…</td><td>${selRaw(`${pth}.suajeModo`,["amortizar","cobrar aparte"],cot.suajeModo||"amortizar")}</td></tr>
+        <tr><td class="l">El suaje se…</td><td>${selRaw(`${pth}.suajeModo`,["amortizar","cobrar aparte"],prod.suajeModo||"amortizar")}</td></tr>
       </table>
       <table style="margin-top:8px"><thead><tr><th class="l">Extra</th><th>MXN por pieza</th><th></th></tr></thead><tbody>${eRows}</tbody></table>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${S.cotParams.extras.map((x,k)=>`<button class="rowbtn" style="margin:0" data-click="cqAddExtra(${k})">+ ${escapeHtml(x.n)}</button>`).join("")}</div>
@@ -1781,7 +1806,7 @@ function secCotizador(R){
       <div class="hint" style="padding:6px 12px">Los tiempos de cada tipo de corte se ajustan abajo en <b>Parámetros del cotizador</b>. La tarifa por hora es la del centro de costo del mes de trabajo (mano de obra + indirectos).</div></div></div>
     <div class="card" style="margin-top:16px"><h3>Precio por volumen</h3><div class="pad">${res}
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><button class="btn primary" data-click="cqPDF()">Descargar PDF para el cliente</button>${puedeEditar()?`<button class="btn" data-click="cqAlCatalogo()">Crear inserto en Costeo de placas</button>`:''}</div>
-      <div class="note" style="margin-top:8px">Precio sugerido = costo total ÷ (1 − margen − comisión). El <b>precio piso</b> sólo cubre material, extras, suaje y energía de proceso: abajo de él cada pieza pierde. El PDF para el cliente lleva tu logo, los datos de contacto de ambos, el producto, las piezas y el precio por volumen; no muestra costos ni márgenes. Si capturas el <b>precio al cliente</b>, ese es el que sale en el PDF y el que pasa al catálogo; si lo dejas vacío se usa el sugerido. Al crear el inserto se copian las piezas, los materiales (máximo 3), el precio del primer volumen y los tiempos a la Ruta de proceso.</div></div></div>
+      <div class="note" style="margin-top:8px">Precio sugerido = costo total ÷ (1 − margen − comisión). El <b>precio piso</b> sólo cubre material, extras, suaje y energía de proceso: abajo de él cada pieza pierde. El PDF para el cliente lleva tu logo, los datos de contacto de ambos y, por cada producto de la cotización, sus piezas y su precio por volumen; no muestra costos ni márgenes. Si capturas el <b>precio al cliente</b>, ese es el que sale en el PDF y el que pasa al catálogo; si lo dejas vacío se usa el sugerido. Al crear el inserto (del producto que estás editando) se copian las piezas, los materiales (máximo 3), el precio del primer volumen y los tiempos a la Ruta de proceso.</div></div></div>
     ${cqParamsHTML()}`;
 }
 function cqParamsHTML(){
@@ -3695,10 +3720,10 @@ const app={
   cqPDF(){
     if(!window.jspdf||!window.jspdf.jsPDF){alert("No se pudo cargar la librería de PDF. Revisa tu conexión e inténtalo de nuevo.");return;}
     const i=cqActual(); if(i<0) return; const cot=S.cotizaciones[i];
-    const R=computeAt(periodoKey()); const C=cqCalc(cot,R);
+    const R=computeAt(periodoKey()); const prods=cqProds(cot); const CS=prods.map(p=>cqCalc(p,R)); const C=CS[0];
     if(!cqEsFirme(cot)){ app.cqFirme(()=>app.cqPDF()); return; }
-    if(!C.niveles.length||C.niveles.some(n=>n.finalUSD==null)){ toast("Captura volúmenes y material completos antes de generar el PDF"); return; }
-    if(C.incompleto){ toast("Hay piezas sin material o medidas: complétalas antes de generar el PDF"); return; }
+    { const mal=CS.findIndex(Cx=>!Cx.niveles.length||Cx.niveles.some(n=>n.finalUSD==null)||Cx.incompleto);
+      if(mal>=0){ cqProdSel=mal; renderSection("cotizador"); toast("Completa volúmenes, piezas y material del producto "+(mal+1)+" antes de generar el PDF"); return; } }
     try{
       const {jsPDF}=window.jspdf; const doc=new jsPDF({orientation:"portrait",unit:"pt",format:"letter"});
       const W=612, M=48, azul=[16,40,64];
@@ -3719,30 +3744,43 @@ const app={
         startY:y,margin:{left:M,right:M},styles:{font:"helvetica",fontSize:9,cellPadding:4.5,lineColor:[221,227,232],lineWidth:.5,textColor:[24,36,48],overflow:"linebreak"},
         headStyles:{fillColor:azul,textColor:255,fontStyle:"bold"},columnStyles:{0:{cellWidth:86},1:{cellWidth:172},2:{cellWidth:86},3:{cellWidth:172}}});
       y=doc.lastAutoTable.finalY+12;
-      doc.autoTable({head:[["Producto","No. de parte","Estilo de inserto"]],body:[[cot.desc||cot.estilo||"Inserto de protección",cot.np||"—",cot.estilo||"—"]],
-        startY:y,margin:{left:M,right:M},styles:{font:"helvetica",fontSize:10,cellPadding:6,lineColor:[221,227,232],lineWidth:.5,textColor:[24,36,48]},
-        headStyles:{fillColor:azul,textColor:255,fontStyle:"bold"},columnStyles:{0:{fontStyle:"bold"}}});
-      y=doc.lastAutoTable.finalY+12;
-      // Especificación
-      const piezas=C.piezas.map(p=>[p.desc||"Pieza",p.M.cat?p.M.nombre:((p.fam||"Material")+(p.M.grosor>0?" "+toFrac(p.M.grosor)+'"':"")),
-        `${toFrac(num(p.L))} × ${toFrac(num(p.A))}${p.M.bloque&&num(p.G)>0?" × "+toFrac(num(p.G)):(p.M.grosor>0&&!p.M.bloque?" × "+toFrac(p.M.grosor):"")} in`,fN(num(p.cant),0)]);
-      doc.autoTable({head:[["Pieza","Material","Medidas (L × A × grosor)","Cant. por inserto"]],body:piezas,startY:y,margin:{left:M,right:M},
-        styles:{font:"helvetica",fontSize:9,cellPadding:5,lineColor:[221,227,232],lineWidth:.5,textColor:[24,36,48]},
-        headStyles:{fillColor:azul,textColor:255,fontStyle:"bold"},columnStyles:{3:{halign:"right"}}});
-      y=doc.lastAutoTable.finalY+12;
-      // Precios
-      const filas=C.niveles.map(n=>[fN(n.Q,0)+" pzas",fUSD(n.finalUSD),fUSD(n.finalUSD*n.Q)]);
-      doc.autoTable({head:[["Volumen","Precio unitario (USD)","Importe (USD)"]],body:filas,startY:y,margin:{left:M,right:M},
-        styles:{font:"helvetica",fontSize:11,cellPadding:7,lineColor:[221,227,232],lineWidth:.5,textColor:[24,36,48]},
-        headStyles:{fillColor:azul,textColor:255,fontStyle:"bold"},columnStyles:{0:{fontStyle:"bold"},1:{halign:"right",fontStyle:"bold"},2:{halign:"right"}}});
-      y=doc.lastAutoTable.finalY+18;
+      const multi=prods.length>1;
+      if(multi){ // resumen de productos
+        doc.autoTable({head:[["#","Producto","No. de parte","Estilo de inserto","Precio desde (USD)"]],
+          body:prods.map((p,j)=>{ const fin=CS[j].niveles.map(n=>n.finalUSD); return [String(j+1),p.desc||p.estilo||"Inserto de protección",p.np||"—",p.estilo||"—",fUSD(Math.min(...fin))]; }),
+          startY:y,margin:{left:M,right:M},styles:{font:"helvetica",fontSize:9.5,cellPadding:5,lineColor:[221,227,232],lineWidth:.5,textColor:[24,36,48]},
+          headStyles:{fillColor:azul,textColor:255,fontStyle:"bold"},columnStyles:{0:{halign:"center",cellWidth:24},1:{fontStyle:"bold"},4:{halign:"right"}}});
+        y=doc.lastAutoTable.finalY+16;
+      }
+      prods.forEach((p,j)=>{ const Cj=CS[j];
+        if(y>640){ doc.addPage(); y=60; }
+        if(multi){ doc.setFillColor(238,243,248); doc.rect(M,y,W-2*M,22,"F"); doc.setFont("helvetica","bold"); doc.setFontSize(11); doc.setTextColor(...azul);
+          doc.text("Producto "+(j+1)+": "+(p.desc||p.estilo||"Inserto de protección")+(p.np?"  ·  No. de parte "+p.np:""),M+8,y+15); y+=30; }
+        else { doc.autoTable({head:[["Producto","No. de parte","Estilo de inserto"]],body:[[p.desc||p.estilo||"Inserto de protección",p.np||"—",p.estilo||"—"]],
+            startY:y,margin:{left:M,right:M,top:50,bottom:64},styles:{font:"helvetica",fontSize:10,cellPadding:6,lineColor:[221,227,232],lineWidth:.5,textColor:[24,36,48]},
+            headStyles:{fillColor:azul,textColor:255,fontStyle:"bold"},columnStyles:{0:{fontStyle:"bold"}}});
+          y=doc.lastAutoTable.finalY+12; }
+        const piezas=Cj.piezas.map(q=>[q.desc||"Pieza",q.M.cat?q.M.nombre:((q.fam||"Material")+(q.M.grosor>0?" "+toFrac(q.M.grosor)+'"':"")),
+          `${toFrac(num(q.L))} × ${toFrac(num(q.A))}${q.M.bloque&&num(q.G)>0?" × "+toFrac(num(q.G)):(q.M.grosor>0&&!q.M.bloque?" × "+toFrac(q.M.grosor):"")} in`,fN(num(q.cant),0)]);
+        doc.autoTable({head:[["Pieza","Material","Medidas (L × A × grosor)","Cant. por inserto"]],body:piezas,startY:y,margin:{left:M,right:M,top:50,bottom:64},
+          styles:{font:"helvetica",fontSize:9,cellPadding:5,lineColor:[221,227,232],lineWidth:.5,textColor:[24,36,48]},
+          headStyles:{fillColor:azul,textColor:255,fontStyle:"bold"},columnStyles:{3:{halign:"right"}}});
+        y=doc.lastAutoTable.finalY+10;
+        const filas=Cj.niveles.map(n=>[fN(n.Q,0)+" pzas",fUSD(n.finalUSD),fUSD(n.finalUSD*n.Q)]);
+        doc.autoTable({head:[["Volumen","Precio unitario (USD)","Importe (USD)"]],body:filas,startY:y,margin:{left:M,right:M,top:50,bottom:64},
+          styles:{font:"helvetica",fontSize:multi?10:11,cellPadding:multi?5:7,lineColor:[221,227,232],lineWidth:.5,textColor:[24,36,48]},
+          headStyles:{fillColor:azul,textColor:255,fontStyle:"bold"},columnStyles:{0:{fontStyle:"bold"},1:{halign:"right",fontStyle:"bold"},2:{halign:"right"}}});
+        y=doc.lastAutoTable.finalY+(multi?20:18);
+      });
       const cond=["Precios en dólares estadounidenses (USD), más IVA.",
         `Tipo de cambio de referencia: ${fN(C.tc,4)} MXN/USD. Si se factura en pesos se usará el tipo de cambio del día de la factura.`,
         `Vigencia de la cotización: ${vm} ${vm===1?"mes":"meses"} a partir de la fecha de emisión.`,
-        "Precio por pieza según el volumen indicado por pedido."];
-      if(!C.amort&&num(cot.suajeCosto)>0) cond.unshift(`Herramental (suaje): cargo único de ${fUSD(num(cot.suajeCosto))} más IVA, se factura con el primer pedido.`);
-      else if(num(cot.suajeCosto)>0) cond.push("El costo del herramental (suaje) está incluido en el precio por pieza.");
+        "Precio por pieza según el volumen indicado por pedido"+(prods.length>1?", para cada producto.":".")];
+      prods.forEach((p,j)=>{ const nom=prods.length>1?" del producto "+(j+1):"";
+        if(!CS[j].amort&&num(p.suajeCosto)>0) cond.unshift(`Herramental (suaje)${nom}: cargo único de ${fUSD(num(p.suajeCosto))} más IVA, se factura con el primer pedido.`);
+        else if(num(p.suajeCosto)>0) cond.push(`El costo del herramental (suaje)${nom} está incluido en el precio por pieza.`); });
       if(cot.notas) cond.push(String(cot.notas));
+      if(y>680){ doc.addPage(); y=60; }
       doc.setFont("helvetica","bold");doc.setFontSize(10);doc.setTextColor(...azul); doc.text("Condiciones",M,y); y+=14;
       doc.setFont("helvetica","normal");doc.setFontSize(9.5);doc.setTextColor(50,60,70);
       cond.forEach(c=>{ const t=doc.splitTextToSize("• "+c,W-2*M); if(y+t.length*13>720){ doc.addPage(); y=60; } doc.text(t,M,y); y+=t.length*13+3; });
@@ -3755,9 +3793,10 @@ const app={
   },
   cqGuardarEmisor(){ const i=cqActual(); if(i<0) return; const c=S.cotizaciones[i]; ensureCotizador();
     CQ_CAMPOS.forEach(([k,,e])=>{ S.cotParams.emisor[e]=cqEm(c,k); }); save(); renderSection("cotizador"); toast("Tus datos quedaron como predeterminados para nuevas cotizaciones"); },
-  cqSelect(v){ cqSel=v; renderSection("cotizador"); },
+  cqSelect(v){ cqSel=v; cqProdSel=0; renderSection("cotizador"); },
   cqFirme(despues){ const i=cqActual(); if(i<0) return; const c=S.cotizaciones[i]; if(cqEsFirme(c)){ if(despues) despues(); return; }
-    { const C=cqCalc(c,computeAt(periodoKey())); if(!C.niveles.length||C.niveles.some(n=>n.finalUSD==null)||C.incompleto){ toast("Completa volúmenes, piezas y material antes de emitir la cotización en firme"); return; } }
+    { const Rf=computeAt(periodoKey()); const mal=cqProds(c).findIndex(p=>{ const C=cqCalc(p,Rf); return !C.niveles.length||C.niveles.some(n=>n.finalUSD==null)||C.incompleto; });
+      if(mal>=0){ cqProdSel=mal; renderSection("cotizador"); toast("Completa volúmenes, piezas y material del producto "+(mal+1)+" antes de emitir la cotización en firme"); return; } }
     const folio=cqSiguienteFolio();
     askConfirm(`¿Emitir la cotización en firme${c.cliente?" para <b>"+escapeHtml(c.cliente)+"</b>":""}? Se le asigna el folio <b>${escapeHtml(folio)}</b> con fecha de hoy y el siguiente número queda para la próxima cotización.${despues?" Después se descarga el PDF.":""}`,()=>{
       const folioN=cqSiguienteFolio(); c.folio=folioN; c.fecha=new Date().toISOString().slice(0,10); if(!c.estado||c.estado==="Borrador") c.estado="Enviada";
@@ -3767,12 +3806,23 @@ const app={
     S.cotizaciones.push({folio,fecha:new Date().toISOString().slice(0,10),cliente:"",desc:"",np:"",estado:"Borrador",estilo:"",v1:100,v2:500,v3:1000,margen:null,merma:0,suajeCosto:null,suajeModo:"amortizar",
       piezas:[{desc:"Plancha",fam:pe?"Polietileno (PE)":"",mat:pe?pe.nombre:"(manual)",L:null,A:null,G:null,cant:1}],ops:[{c:S.cotParams.cortes[0]?S.cotParams.cortes[0].n:"",veces:1}],extras:[],notas:""});
     { const E=S.cotParams.emisor||{}, c=S.cotizaciones[S.cotizaciones.length-1]; CQ_CAMPOS.forEach(([k,,e])=>{ c["em"+(k==="Contacto"?"Nombre":k)]=E[e]||""; }); }
-    cqSel=folio; save(); renderSection("cotizador"); toast("Borrador creado: el folio se asigna al emitirla en firme"); },
+    cqSel=folio; cqProdSel=0; save(); renderSection("cotizador"); toast("Borrador creado: el folio se asigna al emitirla en firme"); },
   cqDuplicar(){ const i=cqActual(); if(i<0) return; const c=clone(S.cotizaciones[i]);
     c.folio=cqFolioBorrador(); c.fecha=new Date().toISOString().slice(0,10); c.estado="Borrador"; S.cotizaciones.push(c); cqSel=c.folio; save(); renderSection("cotizador"); toast("Duplicada como borrador: el folio se asigna al emitirla en firme"); },
   cqEliminar(){ const i=cqActual(); if(i<0) return; const c=S.cotizaciones[i];
     askConfirm("¿Eliminar la cotización <b>"+escapeHtml(cqEtiqueta(c))+"</b>"+(c.cliente?" de "+escapeHtml(c.cliente):"")+"?",()=>{ S.cotizaciones.splice(i,1); cqSel=null; save(); renderSection("cotizador"); toast("Cotización eliminada"); },"Eliminar"); },
-  cqAplicarEstilo(){ const i=cqActual(); if(i<0) return; const cot=S.cotizaciones[i]; const e=CQ_ESTILOS().find(x=>x.n===cot.estilo);
+  cqProdVer(j){ cqProdSel=+j||0; renderSection("cotizador"); },
+  cqAddProd(){ const i=cqActual(); if(i<0) return; const c=S.cotizaciones[i]; if(!Array.isArray(c.productos)) c.productos=[];
+    c.productos.push(cqProdNuevo()); cqProdSel=c.productos.length; save(); renderSection("cotizador"); toast("Producto "+(cqProdSel+1)+" agregado a la cotización"); },
+  cqDupProd(){ const i=cqActual(); if(i<0) return; const c=S.cotizaciones[i]; const p=cqProds(c)[cqProdIdx(c)]; if(!Array.isArray(c.productos)) c.productos=[];
+    const n=clone({desc:p.desc,np:p.np,estilo:p.estilo,v1:p.v1,v2:p.v2,v3:p.v3,pc1:p.pc1,pc2:p.pc2,pc3:p.pc3,margen:p.margen,merma:p.merma,suajeCosto:p.suajeCosto,suajeModo:p.suajeModo,piezas:p.piezas||[],ops:p.ops||[],extras:p.extras||[]});
+    n.np=""; c.productos.push(n); cqProdSel=c.productos.length; save(); renderSection("cotizador"); toast("Producto duplicado como producto "+(cqProdSel+1)); },
+  cqDelProd(){ const i=cqActual(); if(i<0) return; const c=S.cotizaciones[i]; const ps=cqProds(c); if(ps.length<2) return; const j=cqProdIdx(c);
+    askConfirm("¿Quitar <b>"+escapeHtml(cqProdNombre(ps[j],j))+"</b> de la cotización?",()=>{
+      if(j===0){ const nx=c.productos.shift(); ["desc","np","estilo","v1","v2","v3","pc1","pc2","pc3","margen","merma","suajeCosto","suajeModo","piezas","ops","extras"].forEach(k=>{ if(nx[k]===undefined) delete c[k]; else c[k]=nx[k]; }); }
+      else c.productos.splice(j-1,1);
+      if(!c.productos.length) delete c.productos; cqProdSel=Math.max(0,j-1); save(); renderSection("cotizador"); toast("Producto quitado"); },"Quitar"); },
+  cqAplicarEstilo(){ const cot=cqProd(); if(!cot) return; const e=CQ_ESTILOS().find(x=>x.n===cot.estilo);
     if(!e){ toast("Elige primero un estilo de inserto"); return; }
     const aplicar=()=>{ const base=(cot.piezas||[])[0]||{}; const cortes=S.cotParams.cortes.map(c=>c.n);
       cot.piezas=e.piezas.map(([d,c])=>({desc:d,fam:base.fam||"",mat:base.mat||"(manual)",L:null,A:null,G:null,cant:c,mL:base.mL,mA:base.mA,mG:base.mG,mPrecio:base.mPrecio}));
@@ -3782,32 +3832,32 @@ const app={
       save(); renderSection("cotizador"); toast("Estilo aplicado: captura las medidas de cada pieza"); };
     const conDatos=(cot.piezas||[]).some(p=>num(p.L)>0||num(p.A)>0);
     if(conDatos) askConfirm("¿Reemplazar las piezas y cortes actuales por los del estilo <b>"+escapeHtml(e.n)+"</b>?",aplicar,"Reemplazar"); else aplicar(); },
-  cqAddPieza(){ const i=cqActual(); if(i<0) return; const c=S.cotizaciones[i]; const u=(c.piezas||[])[c.piezas.length-1]||{};
+  cqAddPieza(){ const c=cqProd(); if(!c) return; if(!Array.isArray(c.piezas)) c.piezas=[]; const u=(c.piezas||[])[c.piezas.length-1]||{};
     c.piezas.push({desc:"Pieza",fam:u.fam||"",mat:u.mat||"(manual)",L:null,A:null,G:null,cant:1}); save(); renderSection("cotizador"); },
-  cqAddOp(){ const i=cqActual(); if(i<0) return; S.cotizaciones[i].ops.push({c:S.cotParams.cortes[0]?S.cotParams.cortes[0].n:"",veces:1}); save(); renderSection("cotizador"); },
-  cqAddExtra(k){ const i=cqActual(); if(i<0) return; const x=S.cotParams.extras[k]; if(!x) return; S.cotizaciones[i].extras.push({n:x.n,costo:num(x.costo)}); save(); renderSection("cotizador"); },
-  cqDel(lista,j){ const i=cqActual(); if(i<0) return; const a=S.cotizaciones[i][lista]; if(Array.isArray(a)) a.splice(j,1); save(); renderSection("cotizador"); },
+  cqAddOp(){ const c=cqProd(); if(!c) return; if(!Array.isArray(c.ops)) c.ops=[]; c.ops.push({c:S.cotParams.cortes[0]?S.cotParams.cortes[0].n:"",veces:1}); save(); renderSection("cotizador"); },
+  cqAddExtra(k){ const c=cqProd(); if(!c) return; const x=S.cotParams.extras[k]; if(!x) return; if(!Array.isArray(c.extras)) c.extras=[]; c.extras.push({n:x.n,costo:num(x.costo)}); save(); renderSection("cotizador"); },
+  cqDel(lista,j){ const c=cqProd(); if(!c) return; const a=c[lista]; if(Array.isArray(a)) a.splice(j,1); save(); renderSection("cotizador"); },
   cqAddParam(lista){ ensureCotizador(); if(lista==="cortes") S.cotParams.cortes.push({n:"Nuevo corte",prep:0,min:0,ce:CENTRO_PROD}); else S.cotParams.extras.push({n:"Nuevo extra",costo:0}); save(); renderSection("cotizador"); },
   cqDelParam(lista,k){ ensureCotizador(); S.cotParams[lista].splice(k,1); save(); renderSection("cotizador"); },
-  cqAlCatalogo(){ const i=cqActual(); if(i<0) return; const cot=S.cotizaciones[i];
+  cqAlCatalogo(){ const i=cqActual(); if(i<0) return; const cq=S.cotizaciones[i]; const cot=cqProd();
     const np=String(cot.np||"").trim(); if(!np){ toast("Captura primero el número de parte / inserto"); return; }
     if(!/^[\p{L}\p{N}_ -]{1,80}$/u.test(np)){ toast("El número de parte sólo admite letras, números, espacios, guion o guion bajo"); return; }
     if(S.inserts.some(x=>String(x.id)===np)){ toast("Ya existe el inserto "+np+" en el catálogo"); return; }
     const R=computeAt(periodoKey()); const C=cqCalc(cot,R); const N1=C.niveles[0];
     const slots=[], idxDe=p=>{ const key=p.M.cat?p.M.nombre:("manual|"+p.M.largo+"|"+p.M.ancho+"|"+p.M.grosor+"|"+p.M.precio);
-      let k=slots.findIndex(s=>s.key===key); if(k<0){ if(slots.length>=3) return -1; slots.push({key,slot:p.M.cat?{nombre:p.M.nombre}:{nombre:(p.fam||"Material")+" (cotización "+cot.folio+")",precio:p.M.precio,largo:p.M.largo,ancho:p.M.ancho,grosor:p.M.grosor}}); k=slots.length-1; } return k; };
+      let k=slots.findIndex(s=>s.key===key); if(k<0){ if(slots.length>=3) return -1; slots.push({key,slot:p.M.cat?{nombre:p.M.nombre}:{nombre:(p.fam||"Material")+" (cotización "+cq.folio+")",precio:p.M.precio,largo:p.M.largo,ancho:p.M.ancho,grosor:p.M.grosor}}); k=slots.length-1; } return k; };
     const piezas=[]; for(const p of C.piezas){ const k=idxDe(p); if(k<0){ toast("El inserto admite máximo 3 materiales distintos"); return; }
       piezas.push({comp:p.desc||"Extra",m1:num(p.L)||null,m2:num(p.A)||null,grosor:p.M.bloque?(num(p.G)||null):null,mat:k+1,cant:num(p.cant)||1,piezasManual:null,s1:null,s2:null}); }
     askConfirm(`¿Crear el inserto <b>${escapeHtml(np)}</b> en Costeo de placas con ${piezas.length} pieza(s), ${slots.length} material(es)${N1&&N1.finalUSD!=null?` y precio de ${fUSD(N1.finalUSD)} (volumen de ${fN(N1.Q,0)} pzas)`:""}?`,()=>{
       const mats=slots.map(s=>s.slot); while(mats.length<3) mats.push({});
-      S.inserts.push({id:np,cliente:cot.cliente||null,q25:null,q26:N1&&N1.finalUSD!=null?Math.round(N1.finalUSD*10000)/10000:null,diseno:{materiales:mats,piezas}});
+      S.inserts.push({id:np,cliente:cq.cliente||null,q25:null,q26:N1&&N1.finalUSD!=null?Math.round(N1.finalUSD*10000)/10000:null,diseno:{materiales:mats,piezas}});
       const porCe={}; C.ops.forEach(o=>{ const ce=o.cfg.ce||CENTRO_PROD; const g=porCe[ce]||(porCe[ce]={prep:0,min:0}); g.prep+=o.prep; g.min+=o.min; });
       const ces=Object.keys(porCe); if(!ces.length) S.ruta.push(...stdRutaOps(np));
       ces.forEach((ce,j)=>S.ruta.push({ins:np,op:10*(j+1),proc:CENTRO_PROD,ce,prep:Math.round(porCe[ce].prep*100)/100,lote:N1?N1.Q:1,minMO:Math.round(porCe[ce].min*1000)/1000,minMaq:null,nop:1,retrab:0,merma:0}));
       if(cot.margen!=null&&cot.margen!==""){ S.perInsert[np]=Object.assign(S.perInsert[np]||{},{margenObj:num(cot.margen)}); }
       if(num(cot.merma)>0){ S.perInsert[np]=Object.assign(S.perInsert[np]||{},{mermaMat:num(cot.merma)}); }
-      if(cot.cliente&&!S.clientes.includes(cot.cliente)) S.clientes.push(cot.cliente);
-      cot.estado="Ganada"; sortInserts(); disenoSel=np; save(); renderKPIs(); renderChain(); app.go("placas"); toast("Inserto "+np+" creado desde "+cot.folio); },"Crear inserto"); },
+      if(cq.cliente&&!S.clientes.includes(cq.cliente)) S.clientes.push(cq.cliente);
+      cq.estado="Ganada"; sortInserts(); disenoSel=np; save(); renderKPIs(); renderChain(); app.go("placas"); toast("Inserto "+np+" creado desde "+cqEtiqueta(cq)); },"Crear inserto"); },
   guiaAddOlvidados(){ const nombres=S.indirectos.map(it=>indKey(it)); let n=0;
     OLVIDADOS_FOAM.forEach(([nom,re,cl])=>{ if(!nombres.some(c=>re.test(c))){ S.indirectos.push({c:nom,cl,ce:cl==="Indirecto variable"?"Corte/Pegado/Ensamble":"Administración",m:null}); n++; } });
     save(); renderKPIs(); renderChain(); renderSection(current); toast(n+" concepto(s) agregado(s) en Indirectos"); },
