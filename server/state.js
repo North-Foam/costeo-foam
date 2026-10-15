@@ -33,11 +33,15 @@ const compra = z.object({
 const pago = z.object({ uuid: uuidR, fecha: fechaR, receptorRfc: text.optional(), docs: z.array(z.object({ id: uuidR, imp: num, f: fechaR }).strict()).max(500) }).strict();
 const cotExtra = z.object({ n: text.optional(), ...numbers(['costo']) }).strict();
 const CQ_DATOS = ['cliContacto','cliDir','cliCiudad','cliCP','cliCorreo','cliCel','emNombre','emDir','emCiudad','emCP','emCorreo','emCel'];
+const cotPiezas = z.array(z.object({ desc: text.optional(), fam: text.optional(), mat: text.optional(), ...numbers(['L','A','G','cant','mL','mA','mG','mPrecio']) }).strict()).max(200);
+const cotOps = z.array(z.object({ c: text.optional(), ...numbers(['veces']) }).strict()).max(100);
+const cotProducto = z.object({ desc: text.optional(), np: text.optional(), estilo: text.optional(), suajeModo: text.optional(),
+  ...numbers(['v1','v2','v3','pc1','pc2','pc3','margen','merma','suajeCosto']), piezas: cotPiezas, ops: cotOps, extras: z.array(cotExtra).max(50) }).strict();
 const cotizacion = z.object({ folio: text, fecha: text.optional(), cliente: text.optional(), ...Object.fromEntries(CQ_DATOS.map(k => [k, text.optional()])), desc: text.optional(), np: text.optional(), estilo: text.optional(), estado: text.optional(), notas: text.optional(), suajeModo: text.optional(),
   ...numbers(['v1','v2','v3','pc1','pc2','pc3','margen','merma','suajeCosto']),
   piezas: z.array(z.object({ desc: text.optional(), fam: text.optional(), mat: text.optional(), ...numbers(['L','A','G','cant','mL','mA','mG','mPrecio']) }).strict()).max(200),
   ops: z.array(z.object({ c: text.optional(), ...numbers(['veces']) }).strict()).max(100),
-  extras: z.array(cotExtra).max(50) }).strict();
+  extras: z.array(cotExtra).max(50), productos: z.array(cotProducto).max(30).optional() }).strict();
 const registro = z.object({
   id: z.string().regex(/^[a-z0-9]{4,24}$/), fecha: z.string().regex(/^(\d{4}-(0[1-9]|1[0-2])-\d{2})?$/), ins: id,
   pzas: num.optional(), rech: num.optional(), prep: num.optional(), min: num.optional(), nop: num.optional(), nota: text.nullable().optional()
