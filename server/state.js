@@ -68,7 +68,7 @@ const schema = z.object({
   cotParams:z.object({ cortes:z.array(z.object({ n:text, ...numbers(['prep','min']), ce:text.optional(), suaje:z.boolean().optional() }).strict()).max(100), extras:z.array(cotExtra).max(100), ...numbers(['ultimoFolio']),
     emisor:z.object(Object.fromEntries(['nombre','dir','ciudad','cp','correo','cel'].map(k => [k, text.optional()]))).strict().optional() }).strict().optional(),
   cotizaciones:z.array(cotizacion).max(3000).optional(),
-  proveedores:z.array(proveedor).max(500).optional(), precioProv:z.array(precioProv).max(5000).optional(),
+  proveedores:z.array(proveedor).max(500).optional(), precioProv:z.array(precioProv).max(5000).optional(), provSeed:z.boolean().optional(),
   seguridad:z.object({ pinSalt: z.string().regex(/^[0-9a-f]{32}$/), pinHash: z.string().regex(/^[0-9a-f]{64}$/) }).strict().optional(), produccion:z.array(registro).max(10000).optional(), facturaMap:z.record(key,id).optional(),
   clientes:z.array(text).max(2000), ruta:z.array(z.object({ ins:id, proc:text, ce:text, ...numbers(['op','prep','lote','minMO','minMaq','nop','retrab','merma']) }).strict()).max(10000)
 }).strict();
