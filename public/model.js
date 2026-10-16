@@ -1108,6 +1108,18 @@ function ensureProveedores(){
   if(!Array.isArray(S.proveedores)) S.proveedores=[];
   if(!Array.isArray(S.precioProv)) S.precioProv=[];
 }
+// Alta única del primer proveedor (Specialized Packaging Group) con los precios actuales del catálogo
+function seedProveedorInicial(){
+  if(S.provSeed) return false;
+  ensureProveedores();
+  let p=S.proveedores.find(x=>/specialized packaging|\bspg\b/i.test(String(x.nombre||"")));
+  if(!p){ p={id:nuevoIdReg(),nombre:"Specialized Packaging Group",contacto:"Jose Carlos Marquez Serrano",tel:"(663) 323 9412",correo:"jose.marquez1@spgpackaging.com",notas:"Business Development Manager · SPGpackaging.com"}; S.proveedores.unshift(p); }
+  const hoy=new Date().toISOString().slice(0,10);
+  (S.catalogo||[]).forEach(m=>{ const c=num(m.costo); if(!m.nombre||!(c>0)) return;
+    if(!S.precioProv.some(r=>r.prov===p.id&&r.mat===m.nombre)) S.precioProv.push({prov:p.id,mat:m.nombre,costo:c,moneda:"USD",fecha:hoy,notas:"Precio vigente del catálogo"});
+    if(!m.prov) m.prov=p.nombre; });
+  S.provSeed=true; return true;
+}
 function provNombre(id){ const p=(S.proveedores||[]).find(x=>x.id===id); return p?String(p.nombre||"(sin nombre)"):"(sin proveedor)"; }
 function precioUSD(r,tc){ const c=num(r.costo); if(!(c>0)) return null; return r.moneda==="MXN"?(tc>0?c/tc:null):c; }
 function comparativoMat(tc){ // mejor precio por material
@@ -1121,14 +1133,15 @@ function secProveedores(R){
   const tc=R.tc, cat=S.catalogo||[], catNames=cat.map(m=>m.nombre).filter(Boolean), cmp=comparativoMat(tc);
   const provRows=S.proveedores.map((p,i)=>{ const n=S.precioProv.filter(r=>r.prov===p.id).length; return `<tr>
     <td class="l">${inp(`proveedores.${i}.nombre`,{type:"text",cls:"txt wide",ph:"Nombre del proveedor"})}</td>
-    <td class="l">${inp(`proveedores.${i}.contacto`,{type:"text",cls:"txt"})}</td>
+    <td class="l">${inp(`proveedores.${i}.contacto`,{type:"text",cls:"txt wide"})}</td>
     <td class="l">${inp(`proveedores.${i}.tel`,{type:"text",cls:"txt"})}</td>
     <td class="l">${inp(`proveedores.${i}.correo`,{type:"text",cls:"txt wide"})}</td>
     <td class="l">${inp(`proveedores.${i}.notas`,{type:"text",cls:"txt wide"})}</td>
     <td class="mono">${n}</td>
     <td><button class="del" data-click="delProveedor(${i})" title="Eliminar proveedor">✕</button></td></tr>`; }).join("")
     ||`<tr><td colspan="7" class="l hint">Aún no hay proveedores. Agrega el primero.</td></tr>`;
-  const orden=S.precioProv.map((r,j)=>({r,j})).sort((a,b)=>_colCat.compare(String(a.r.mat||""),String(b.r.mat||""))||((precioUSD(a.r,tc)??1e12)-(precioUSD(b.r,tc)??1e12)));
+  const posMat=n=>{ const k=catNames.indexOf(n); return k<0?1e6:k; };
+  const orden=S.precioProv.map((r,j)=>({r,j})).sort((a,b)=>(posMat(a.r.mat)-posMat(b.r.mat))||((precioUSD(a.r,tc)??1e12)-(precioUSD(b.r,tc)??1e12)));
   const precioRows=orden.map(({r,j})=>{ const u=precioUSD(r,tc), c=cmp[r.mat], esMejor=c&&c.n>1&&c.mejor&&c.mejor.j===j;
     const m=cat.find(x=>x.nombre===r.mat), enUso=m&&m.prov&&m.prov===provNombre(r.prov)&&u!=null&&Math.abs(num(m.costo)-u)<0.005;
     return `<tr>
@@ -4333,7 +4346,7 @@ window.app=app;
 window.NF_MODEL={
  defaults: DEFAULTS,
  read:()=>S,
- load:(state,role)=>{S=clone(state);REAL_VER++;setRol(role);ensureEscenarios();migrateCentros();ensureClientes();sortInserts();renderAll();},
+ load:(state,role)=>{S=clone(state);REAL_VER++;setRol(role);ensureEscenarios();migrateCentros();ensureClientes();sortInserts();const sem=seedProveedorInicial();renderAll();if(sem&&puedeEditar())save();},
  refreshTC:()=>autoTC(),
  render:()=>renderAll(),
  sections:SECTIONS,
