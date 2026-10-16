@@ -454,6 +454,7 @@ document.addEventListener("change",e=>{
     if(el.value===""){ val=null; }
     else{ val=parseFloat(el.value); if(el.dataset.pct==="1") val=val/100; }
   }
+  if(/^catalogo\.\d+\.costo$/.test(el.dataset.path)){ const m=getPath(el.dataset.path.replace(/\.costo$/,"")); if(m) delete m.prov; } // costo manual: ya no es de un proveedor
   setPath(el.dataset.path,val);
   save(); renderKPIs(); renderChain(); renderSection(current);
 });
@@ -479,9 +480,10 @@ const SECTIONS=[
   {id:"precios",ix:"15",name:"Precio mínimo"},
   {id:"variaciones",ix:"16",name:"Variaciones del mes"},
   {id:"placas",ix:"17",name:"Costeo de placas"},
-  {id:"cotizador",ix:"18",name:"Cotizador"},
-  {id:"diagrama",ix:"19",name:"Diagrama de corte"},
-  {id:"validacion",ix:"20",name:"Validación"}
+  {id:"proveedores",ix:"18",name:"Proveedores"},
+  {id:"cotizador",ix:"19",name:"Cotizador"},
+  {id:"diagrama",ix:"20",name:"Diagrama de corte"},
+  {id:"validacion",ix:"21",name:"Validación"}
 ];
 let current="dashboard";
 
@@ -1024,6 +1026,7 @@ function secDiseno(R){
     <td>${fracInput(`catalogo.${k}.ancho`,'in')}</td>
     <td>${fracInput(`catalogo.${k}.largo`,'in')}</td>
     <td>${inp(`catalogo.${k}.costo`)}</td>
+    <td class="l" style="font-size:12px">${m.prov?escapeHtml(m.prov):'<span class="hint">—</span>'}</td>
     <td><button class="del" data-click="delMaterial(${k})">✕</button></td></tr>`).join("");
 
   return `<div style="display:flex;gap:24px;align-items:flex-end;flex-wrap:wrap;margin-bottom:14px">
@@ -1094,10 +1097,71 @@ function secDiseno(R){
     </div>
 
     <div class="card" style="margin-top:16px"><h3>Catálogo de placas (materiales) <span class="hint" style="font-weight:400">— compartido por todos los insertos</span></h3><div class="body"><div class="scroll" style="border:0;box-shadow:none">
-      <table><thead><tr><th class="l">Material</th><th>Grosor in</th><th>Ancho in</th><th>Largo in</th><th>Costo placa $</th><th></th></tr></thead>
+      <table><thead><tr><th class="l">Material</th><th>Grosor in</th><th>Ancho in</th><th>Largo in</th><th>Costo placa $</th><th class="l">Proveedor</th><th></th></tr></thead>
       <tbody>${catRows}</tbody></table></div>
       <button class="rowbtn" data-click="addMaterial()">+ Agregar material</button>
-      <div class="hint" style="padding:6px 12px">Al actualizar el precio o medida de una placa aquí, se recalculan todos los insertos que la usan.</div></div></div>`;
+      <div class="hint" style="padding:6px 12px">Al actualizar el precio o medida de una placa aquí, se recalculan todos los insertos que la usan. Los precios de cada proveedor se capturan en <a href="#" data-click="go('proveedores')">Proveedores</a>.</div></div></div>`;
+}
+
+/* ---------- PROVEEDORES (precios de placas por proveedor) ---------- */
+function ensureProveedores(){
+  if(!Array.isArray(S.proveedores)) S.proveedores=[];
+  if(!Array.isArray(S.precioProv)) S.precioProv=[];
+}
+function provNombre(id){ const p=(S.proveedores||[]).find(x=>x.id===id); return p?String(p.nombre||"(sin nombre)"):"(sin proveedor)"; }
+function precioUSD(r,tc){ const c=num(r.costo); if(!(c>0)) return null; return r.moneda==="MXN"?(tc>0?c/tc:null):c; }
+function comparativoMat(tc){ // mejor precio por material
+  const out={}; (S.precioProv||[]).forEach((r,j)=>{ const u=precioUSD(r,tc); if(u==null||!r.mat) return;
+    const o=out[r.mat]||(out[r.mat]={n:0,mejor:null,peor:null}); o.n++;
+    if(!o.mejor||u<o.mejor.u) o.mejor={u,j,prov:r.prov}; if(!o.peor||u>o.peor.u) o.peor={u,j,prov:r.prov}; });
+  return out;
+}
+function secProveedores(R){
+  ensureProveedores(); ordenarCatalogo();
+  const tc=R.tc, cat=S.catalogo||[], catNames=cat.map(m=>m.nombre).filter(Boolean), cmp=comparativoMat(tc);
+  const provRows=S.proveedores.map((p,i)=>{ const n=S.precioProv.filter(r=>r.prov===p.id).length; return `<tr>
+    <td class="l">${inp(`proveedores.${i}.nombre`,{type:"text",cls:"txt wide",ph:"Nombre del proveedor"})}</td>
+    <td class="l">${inp(`proveedores.${i}.contacto`,{type:"text",cls:"txt"})}</td>
+    <td class="l">${inp(`proveedores.${i}.tel`,{type:"text",cls:"txt"})}</td>
+    <td class="l">${inp(`proveedores.${i}.correo`,{type:"text",cls:"txt wide"})}</td>
+    <td class="l">${inp(`proveedores.${i}.notas`,{type:"text",cls:"txt wide"})}</td>
+    <td class="mono">${n}</td>
+    <td><button class="del" data-click="delProveedor(${i})" title="Eliminar proveedor">✕</button></td></tr>`; }).join("")
+    ||`<tr><td colspan="7" class="l hint">Aún no hay proveedores. Agrega el primero.</td></tr>`;
+  const orden=S.precioProv.map((r,j)=>({r,j})).sort((a,b)=>_colCat.compare(String(a.r.mat||""),String(b.r.mat||""))||((precioUSD(a.r,tc)??1e12)-(precioUSD(b.r,tc)??1e12)));
+  const precioRows=orden.map(({r,j})=>{ const u=precioUSD(r,tc), c=cmp[r.mat], esMejor=c&&c.n>1&&c.mejor&&c.mejor.j===j;
+    const m=cat.find(x=>x.nombre===r.mat), enUso=m&&m.prov&&m.prov===provNombre(r.prov)&&u!=null&&Math.abs(num(m.costo)-u)<0.005;
+    return `<tr>
+    <td class="l"><select class="f" data-path="precioProv.${j}.prov" data-type="text"><option value="">— elegir —</option>${S.proveedores.map(p=>`<option value="${escapeHtml(p.id)}" ${p.id===r.prov?'selected':''}>${escapeHtml(p.nombre||'(sin nombre)')}</option>`).join("")}</select></td>
+    <td class="l"><select class="f" data-path="precioProv.${j}.mat" data-type="text"><option value="">— material —</option>${(r.mat&&!catNames.includes(r.mat)?[r.mat]:[]).concat(catNames).map(n=>`<option ${n===r.mat?'selected':''}>${escapeHtml(n)}</option>`).join("")}</select></td>
+    <td>${inp(`precioProv.${j}.costo`,{ph:"precio placa"})}</td>
+    <td><select class="f" data-path="precioProv.${j}.moneda" data-type="text">${["USD","MXN"].map(x=>`<option ${x===r.moneda?'selected':''}>${x}</option>`).join("")}</select></td>
+    <td class="mono val-calc">${u==null?'—':fUSD(u)}${esMejor?' <span style="color:var(--green,#1a7f4b);font-weight:700" title="Mejor precio para este material">★</span>':''}</td>
+    <td><input class="f" type="date" data-path="precioProv.${j}.fecha" data-type="text" value="${escapeHtml(r.fecha||'')}"></td>
+    <td class="l">${inp(`precioProv.${j}.notas`,{type:"text",cls:"txt wide"})}</td>
+    <td>${enUso?'<span class="hint">En uso</span>':`<button class="rowbtn" style="margin:0" data-click="usarPrecioProv(${j})" ${u==null||!r.mat||!r.prov?'disabled':''}>Usar en catálogo</button>`}</td>
+    <td><button class="del" data-click="delPrecioProv(${j})" title="Quitar precio">✕</button></td></tr>`; }).join("")
+    ||`<tr><td colspan="9" class="l hint">Sin precios capturados.</td></tr>`;
+  const cmpRows=cat.filter(m=>m.nombre).map(m=>{ const c=cmp[m.nombre], act=num(m.costo)||null;
+    const dif=(c&&c.mejor&&act)?act-c.mejor.u:null;
+    return `<tr><td class="l">${escapeHtml(m.nombre)}</td><td class="mono">${act==null?'—':fUSD(act)}</td><td class="l">${m.prov?escapeHtml(m.prov):'<span class="hint">—</span>'}</td>
+      <td class="mono">${c?c.n:0}</td><td class="mono val-calc">${c&&c.mejor?fUSD(c.mejor.u):'—'}</td><td class="l">${c&&c.mejor?escapeHtml(provNombre(c.mejor.prov)):'—'}</td>
+      <td class="mono ${dif>0.005?'val-pend':''}">${dif==null?'—':(dif>0.005?'+'+fUSD(dif)+' más caro':(dif<-0.005?fUSD(-dif)+' abajo':'igual'))}</td>
+      <td>${c&&c.mejor&&dif!=null&&dif>0.005?`<button class="rowbtn" style="margin:0" data-click="usarPrecioProv(${c.mejor.j})">Usar mejor</button>`:''}</td></tr>`; }).join("");
+  return head("Proveedores","PRECIOS DE PLACAS POR PROVEEDOR",
+    "Da de alta a tus proveedores y captura el precio de cada material (placa) que te cotizan. Compara quién da el mejor precio y con <b>Usar en catálogo</b> pasa ese precio al catálogo de placas, con lo que se recalculan todos los insertos que usan ese material. Los precios en pesos se convierten a dólares con el TC efectivo ("+fN(tc,4)+").")
+  +`<div class="card"><h3>Proveedores</h3><div class="body"><div class="scroll" style="border:0;box-shadow:none">
+      <table><thead><tr><th class="l">Proveedor</th><th class="l">Contacto</th><th class="l">Teléfono</th><th class="l">Correo</th><th class="l">Notas</th><th>Precios</th><th></th></tr></thead>
+      <tbody>${provRows}</tbody></table></div>
+      <button class="rowbtn" data-click="addProveedor()">+ Agregar proveedor</button></div></div>
+    <div class="card" style="margin-top:16px"><h3>Precios por proveedor y material</h3><div class="body"><div class="scroll" style="border:0;box-shadow:none">
+      <table><thead><tr><th class="l">Proveedor</th><th class="l">Material (catálogo)</th><th>Precio placa</th><th>Moneda</th><th>USD por placa</th><th>Fecha</th><th class="l">Notas</th><th></th><th></th></tr></thead>
+      <tbody>${precioRows}</tbody></table></div>
+      <button class="rowbtn" data-click="addPrecioProv()" ${S.proveedores.length?'':'disabled'}>+ Agregar precio</button>
+      <div class="hint" style="padding:6px 12px">★ = mejor precio de ese material entre tus proveedores. Si el material no existe aún, agrégalo primero en el catálogo de <a href="#" data-click="go('placas')">Costeo de placas</a>.</div></div></div>
+    <div class="card" style="margin-top:16px"><h3>Comparativo por material</h3><div class="body"><div class="scroll" style="border:0;box-shadow:none">
+      <table><thead><tr><th class="l">Material</th><th>Costo en catálogo</th><th class="l">Proveedor en uso</th><th>Cotizaciones</th><th>Mejor precio</th><th class="l">Mejor proveedor</th><th>Diferencia</th><th></th></tr></thead>
+      <tbody>${cmpRows||'<tr><td colspan="8" class="l hint">El catálogo está vacío.</td></tr>'}</tbody></table></div></div></div>`;
 }
 
 /* ---------- DIAGRAMA DE CORTE (orientación óptima) ---------- */
@@ -3323,7 +3387,7 @@ function renderSection(id){
   const R=(id==="mes"||id==="facturas"||id==="integral"||id==="produccion"||id==="compras"||id==="precios"||id==="variaciones"||id==="dashboard"||id==="cotizador")?computeAt(periodoKey()):compute();
   const map={dashboard:secDashboard,mes:secMes,presupuesto:secPresupuesto,resumen:secResumen,control:secControl,capacidad:secCapacidad,mano:secMano,
     indirectos:secIndirectos,energia:secEnergia,centros:secCentros,
-    ruta:secRuta,financiero:secControl,guia:secGuia,cotizador:secCotizador,facturas:secFacturas,compras:secCompras,precios:secPrecios,variaciones:secVariaciones,produccion:secProduccion,integral:secMes,placas:secDiseno,diagrama:secDiagrama,validacion:secValidacion};
+    ruta:secRuta,financiero:secControl,guia:secGuia,cotizador:secCotizador,proveedores:secProveedores,facturas:secFacturas,compras:secCompras,precios:secPrecios,variaciones:secVariaciones,produccion:secProduccion,integral:secMes,placas:secDiseno,diagrama:secDiagrama,validacion:secValidacion};
   const cont=document.getElementById("content");
   cont.className="content"+(puedeEditar()?"":" ro");
   cont.innerHTML=(map[id]||secDashboard)(R);
@@ -3796,6 +3860,19 @@ const app={
   },
   addPieza(idx){ ensureDiseno(S.inserts[idx]); S.inserts[idx].diseno.piezas.push({comp:"Tapa / Base",m1:null,m2:null,grosor:null,mat:1,cant:1,piezasManual:null,s1:null,s2:null}); save(); renderKPIs(); renderChain(); renderSection("placas"); },
   delPieza(idx,j){ S.inserts[idx].diseno.piezas.splice(j,1); save(); renderKPIs(); renderChain(); renderSection("placas"); },
+  addProveedor(){ ensureProveedores(); S.proveedores.push({id:nuevoIdReg(),nombre:"",contacto:"",tel:"",correo:"",notas:""}); save(); renderSection("proveedores"); },
+  delProveedor(i){ ensureProveedores(); const p=S.proveedores[i]; if(!p) return; const n=S.precioProv.filter(r=>r.prov===p.id).length;
+    askConfirm("¿Eliminar al proveedor <b>"+escapeHtml(p.nombre||"(sin nombre)")+"</b>"+(n?" y sus <b>"+n+"</b> precio(s)":"")+"? El catálogo de placas conserva sus costos actuales.", ()=>{
+      const id=p.id; S.proveedores=S.proveedores.filter(x=>x.id!==id); S.precioProv=S.precioProv.filter(r=>r.prov!==id);
+      save(); renderSection("proveedores"); toast("Proveedor eliminado"); }, "Eliminar proveedor"); },
+  addPrecioProv(){ ensureProveedores(); if(!S.proveedores.length){ toast("Agrega primero un proveedor"); return; }
+    S.precioProv.push({prov:S.proveedores[S.proveedores.length-1].id,mat:"",costo:null,moneda:"USD",fecha:new Date().toISOString().slice(0,10),notas:""}); save(); renderSection("proveedores"); },
+  delPrecioProv(j){ ensureProveedores(); S.precioProv.splice(j,1); save(); renderSection("proveedores"); },
+  usarPrecioProv(j){ ensureProveedores(); const r=S.precioProv[j]; if(!r) return; const R=compute(); const u=precioUSD(r,R.tc);
+    const m=(S.catalogo||[]).find(x=>x.nombre===r.mat); if(!m||u==null){ toast("Revisa material y precio"); return; }
+    const pn=provNombre(r.prov), antes=num(m.costo);
+    askConfirm("¿Usar el precio de <b>"+escapeHtml(pn)+"</b> para <b>"+escapeHtml(m.nombre)+"</b>?<br>Costo en catálogo: "+(antes>0?fUSD(antes):"—")+" → <b>"+fUSD(u)+"</b><br><span class='hint'>Se recalculan todos los insertos que usan esta placa.</span>", ()=>{
+      m.costo=Math.round(u*10000)/10000; m.prov=pn; save(); renderKPIs(); renderChain(); renderSection("proveedores"); toast("Catálogo actualizado: "+m.nombre); }, "Usar precio"); },
   addMaterial(){ if(!S.catalogo)S.catalogo=[]; S.catalogo.push({nombre:"NUEVO material",grosor:null,ancho:null,largo:null,costo:null}); save(); renderSection("placas"); },
   delMaterial(k){ S.catalogo.splice(k,1); save(); renderKPIs(); renderChain(); renderSection("placas"); },
   setEscenario(s){S.control.escenario=s;save();renderKPIs();renderChain();renderSection(current);},
