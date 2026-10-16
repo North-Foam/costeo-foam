@@ -960,7 +960,7 @@ function secDiseno(R){
   if(delCli.length&&!delCli.some(x=>String(x.id)===String(disenoSel))) disenoSel=String(delCli[0].id);
   if(cliVista!=="(todos)"&&!delCli.length) return head("Costeo de placas — optimización de corte","INSERTO","")
     +`<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:10px">${clienteSelector("setCliDiagrama")}<span class="hint">0 insertos de ${escapeHtml(cliVista)}</span></div>
-    <div class="note">El cliente <b>${escapeHtml(cliVista)}</b> aún no tiene insertos. Escribe el número del inserto y oprime <b>+ Crear inserto</b>; quedará asignado a este cliente. También puedes elegir <b>(todos)</b> y asignar un inserto existente con “Cliente de este inserto”.</div>
+    <div class="note">El cliente <b>${escapeHtml(cliVista)}</b> aún no tiene insertos. Escribe el número del inserto y oprime <b>+ Crear inserto</b>; quedará asignado a este cliente. También puedes elegir <b>(todos)</b> y mover un inserto existente con “Mover este inserto a”.</div>
     <div style="display:flex;gap:6px;align-items:center;margin-top:10px">
       <input id="newInsId" class="f txt" style="width:170px" placeholder="Número del nuevo inserto" data-enter="addNamedInsert()">
       <button class="btn primary" data-click="addNamedInsert()">+ Crear inserto</button></div>`;
@@ -1020,7 +1020,7 @@ function secDiseno(R){
       <span class="hint">${cliVista==="(todos)"?S.inserts.length+" insertos de todos los clientes":delCli.length+" inserto(s) de "+escapeHtml(cliVista)}</span>
     </div>
     <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
-      <div class="exsel" style="display:inline-flex"><span>Cliente de este inserto</span>
+      <div class="exsel" style="display:inline-flex"><span>Mover este inserto a</span>
         <select data-change="setClienteInserto(${idx},this.value)">
           <option value="">Sin cliente</option>
           ${clientesLista().map(c=>`<option ${clienteDe(ins)&&cliKey(clienteDe(ins))===cliKey(c)?'selected':''}>${escapeHtml(c)}</option>`).join("")}
@@ -3557,7 +3557,16 @@ const app={
       save(); renderKPIs(); renderChain(); renderSection(current); toast("Inserto "+(id||"")+" eliminado");
     }, "Eliminar inserto");
   },
-  setClienteInserto(idx,v){ S.inserts[idx].cliente=(v||"").trim()||null; if(cliVista!=="(todos)") cliVista=clienteLabel(S.inserts[idx]); ensureClientes(); save(); renderKPIs(); renderChain(); renderSection("placas"); },
+  setClienteInserto(idx,v){ const ins=S.inserts[idx]; if(!ins) return;
+    const nuevo=(v||"").trim()||null, antes=clienteLabel(ins), id=String(ins.id);
+    renderSection("placas"); // restablece el selector mientras se confirma
+    if(cliKey(nuevo||"")===cliKey(clienteDe(ins))) return;
+    askConfirm("¿Mover el inserto <b>"+escapeHtml(id)+"</b> de <b>"+escapeHtml(antes)+"</b> a <b>"+escapeHtml(nuevo||"Sin cliente")+"</b>?<br><span class='hint'>El filtro de cliente no cambia; esto sólo cambia el cliente al que pertenece el inserto.</span>", ()=>{
+      const j=S.inserts.findIndex(x=>String(x.id)===id); if(j<0) return;
+      S.inserts[j].cliente=nuevo; ensureClientes();
+      if(!pasaCliente(S.inserts[j])){ const l=S.inserts.filter(pasaCliente); disenoSel=l.length?String(l[0].id):disenoSel; }
+      save(); renderKPIs(); renderChain(); renderSection("placas"); toast("Inserto "+id+" movido a "+(nuevo||"Sin cliente")); }, "Mover inserto");
+  },
   addCliente(){
     const el=document.getElementById("newCliId"); const v=(el?el.value:"").trim();
     if(!v){ toast("Escribe el nombre del cliente"); if(el)el.focus(); return; }
