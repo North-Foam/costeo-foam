@@ -2388,13 +2388,32 @@ function ensureFacturas(){
 function limpiaTxt(s,max){ return String(s==null?"":s).replace(/[<>\u0000-\u0008]/g,"").replace(/\s+/g," ").trim().slice(0,max||200); }
 function facSigno(fa){ return fa.tipo==="E"?-1:1; }
 function facTC(fa,tcDef){ return (fa.moneda==="MXN"||fa.moneda==="XXX")?1:(num(fa.tc)>0?num(fa.tc):tcDef); }
+// Normaliza números de parte: mayúsculas, sin acentos, "4 X12" = "4X12", espacios simples
+function npKey(s){ return String(s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase().replace(/\s*([X\/#()+,-])\s*/g,"$1").replace(/\s+/g," ").trim(); }
+// Llave de asignación por concepto (No. de identificación + descripción)
+function conceptoKey(c){ return (String(c.n||"").trim()+" | "+String(c.d||"").trim()).slice(0,190); }
+let _ambig={sig:null,set:null};
+function nAmbiguos(){ // No. de identificación que se repite con descripciones distintas
+  const fs=S.facturas||[]; const sig=fs.length+":"+fs.reduce((a,f)=>a+(f.conceptos||[]).length,0)+":"+S.inserts.length;
+  if(_ambig.sig===sig) return _ambig.set;
+  const m={}; fs.forEach(f=>(f.conceptos||[]).forEach(c=>{ const n=npKey(c.n); if(!n) return; (m[n]=m[n]||new Set()).add(npKey(c.d)); }));
+  _ambig={sig,set:new Set(Object.keys(m).filter(k=>m[k].size>1))}; return _ambig.set;
+}
 function insDeConcepto(c){
-  const n=String(c.n||"").trim(); if(!n) return null;
-  const ids=new Set(S.inserts.map(i=>String(i.id)));
-  const m=(S.facturaMap||{})[n]; if(m&&ids.has(String(m))) return String(m);
-  if(ids.has(n)) return n;
-  const low=n.toLowerCase(); const hit=S.inserts.find(i=>String(i.id).toLowerCase()===low);
-  return hit?String(hit.id):null;
+  const n=String(c.n||"").trim(), d=String(c.d||"").trim(); if(!n&&!d) return null;
+  const ids=new Set(S.inserts.map(i=>String(i.id))), FM=S.facturaMap||{};
+  // 1) asignación específica de este concepto (número + descripción)
+  const ms=FM[conceptoKey(c)]; if(ms&&ids.has(String(ms))) return String(ms);
+  // 2) número de parte completo exacto
+  if(n&&ids.has(n)) return n;
+  const nk=npKey(n), dk=" "+npKey(d)+" ";
+  const exacto=S.inserts.find(i=>npKey(i.id)===nk&&nk); if(exacto) return String(exacto.id);
+  // 3) el número de parte completo del inserto aparece en la descripción (gana el más largo)
+  const enDesc=S.inserts.map(i=>({id:String(i.id),k:npKey(i.id)})).filter(x=>x.k.length>=4&&(dk.includes(" "+x.k+" ")||(" "+nk+" "+npKey(d)+" ").includes(" "+x.k+" "))).sort((a,b)=>b.k.length-a.k.length);
+  if(enDesc.length) return enDesc[0].id;
+  // 4) asignación general por número, sólo si ese número no se repite con productos distintos
+  if(n&&!nAmbiguos().has(nk)){ const m=FM[n]; if(m&&ids.has(String(m))) return String(m); }
+  return null;
 }
 function enPeriodo(fecha,key){
   const m=String(fecha||"").slice(0,7);
@@ -2466,7 +2485,7 @@ function secFacturas(R){
   const insOpts=S.inserts.map(i=>String(i.id));
   const sinRows=F.sinAsignar.map(c=>`<tr><td class="l mono">${escapeHtml(c.fecha)}</td><td class="l mono">${escapeHtml(c.n||'(vacío)')}</td>
       <td class="l">${escapeHtml(c.d)}</td><td class="mono">${fN(c.q,0)}</td><td class="mono val-calc">${fMXN(c.imp)}</td>
-      <td class="l">${c.n?`<select class="f" data-facmap="${escapeHtml(c.n)}"><option value="">Asignar a…</option>${insOpts.map(o=>`<option>${escapeHtml(o)}</option>`).join("")}</select>`:'<span class="hint">sin No. de identificación</span>'}</td></tr>`).join("");
+      <td class="l"><select class="f" data-facmap="${escapeHtml(conceptoKey(c))}"><option value="">Asignar a…</option>${insOpts.map(o=>`<option>${escapeHtml(o)}</option>`).join("")}</select>${c.n&&nAmbiguos().has(npKey(c.n))?'<div class="hint">No. de identificación repetido en varios productos: se asigna por descripción</div>':''}</td></tr>`).join("");
   // Facturas del periodo
   const fRows=F.lista.slice().sort((a,b)=>String(b.fecha).localeCompare(String(a.fecha))).map(fa=>{
     const tc=facTC(fa,R.tc); const sub=num(fa.subtotal)*facSigno(fa)*tc;
@@ -2549,7 +2568,7 @@ document.addEventListener("change",e=>{
   const el=e.target; if(!el.dataset||el.dataset.facmap===undefined) return;
   ensureFacturas(); const n=el.dataset.facmap; if(!n||!el.value) return;
   S.facturaMap[n]=el.value;
-  save(); renderKPIs(); renderChain(); renderSection(current); toast("Concepto "+n+" asignado al inserto "+el.value);
+  save(); renderKPIs(); renderChain(); renderSection(current); toast("Concepto asignado al inserto "+el.value);
 });
 
 /* ---------- VALIDACIÓN ---------- */
