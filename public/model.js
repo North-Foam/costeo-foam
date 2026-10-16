@@ -857,6 +857,15 @@ function inpPerMargen(id,def){
   const disp=(v==null||v==="")?"":v*100;
   return `<input class="f" type="number" step="any" data-per="${id}" data-field="margenObj" data-pct="1" value="${disp}" placeholder="${(def*100).toFixed(1)}">`;
 }
+// Cambia el número de un inserto en todas las referencias guardadas
+function renombrarIdInserto(old,nv){
+  const mv=(o)=>{ if(o&&Object.prototype.hasOwnProperty.call(o,old)){ o[nv]=o[old]; delete o[old]; } };
+  mv(S.perInsert);
+  (S.ruta||[]).forEach(r=>{ if(String(r.ins)===old) r.ins=nv; });
+  (S.produccion||[]).forEach(r=>{ if(String(r.ins)===old) r.ins=nv; });
+  Object.values(S.periodos||{}).forEach(P=>{ if(!P) return; mv(P.items); if(P.cierre&&P.cierre.items) mv(P.cierre.items); });
+  const FM=S.facturaMap||{}; Object.keys(FM).forEach(k=>{ if(String(FM[k])===old) FM[k]=nv; });
+}
 function insIdInput(i,id){
   return `<input class="f txt" style="width:92px" data-insid="${i}" value="${escapeHtml(id==null?'':id)}" placeholder="N° inserto">`;
 }
@@ -928,10 +937,7 @@ document.addEventListener("change",e=>{
     alert("Ya existe un inserto con el número "+nv+". Usa un número distinto.");
     el.value=old; return;
   }
-  if(nv!==""){
-    if(S.perInsert[old]){ S.perInsert[nv]=S.perInsert[old]; if(nv!==old) delete S.perInsert[old]; }
-    S.ruta.forEach(r=>{ if(String(r.ins)===old) r.ins=nv; });
-  }
+  if(nv!=="") renombrarIdInserto(old,nv);
   S.inserts[i].id=nv;
   sortInserts();
   save(); renderKPIs(); renderChain(); renderSection(current);
@@ -1042,6 +1048,12 @@ function secDiseno(R){
           ${clientesLista().map(c=>`<option ${clienteDe(ins)&&cliKey(clienteDe(ins))===cliKey(c)?'selected':''}>${escapeHtml(c)}</option>`).join("")}
         </select></div>
       <div class="hint" style="margin-top:6px">Pide confirmación antes de mover.</div>
+      <div style="border-top:1px dashed var(--line,#c9d3dc);margin:10px 0 8px"></div>
+      <div style="font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;opacity:.75;margin-bottom:6px">Renombrar número de parte</div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <input id="renInsId" class="f txt" style="width:200px" value="${escapeHtml(String(ins.id))}" data-enter="renombrarInserto()">
+        <button class="btn" data-click="renombrarInserto()">Renombrar</button></div>
+      <div class="hint" style="margin-top:6px">Conserva su costeo, ruta, volúmenes y facturas asignadas.</div>
     </div>
   </div>
 
@@ -3594,6 +3606,19 @@ const app={
       S.inserts[j].cliente=nuevo; ensureClientes();
       if(!pasaCliente(S.inserts[j])){ const l=S.inserts.filter(pasaCliente); disenoSel=l.length?String(l[0].id):disenoSel; }
       save(); renderKPIs(); renderChain(); renderSection("placas"); toast("Inserto "+id+" movido a "+(nuevo||"Sin cliente")); }, "Mover inserto");
+  },
+  renombrarInserto(){
+    const el=document.getElementById("renInsId"); const nv=(el?el.value:"").trim().replace(/\s+/g," ");
+    const i=S.inserts.findIndex(x=>String(x.id)===String(disenoSel)); if(i<0) return;
+    const old=String(S.inserts[i].id);
+    if(!nv){ toast("Escribe el número de parte completo"); return; }
+    if(nv===old) return;
+    if(!ID_OK(nv)){ toast(ID_MSG); return; }
+    if(S.inserts.some((x,j)=>j!==i&&String(x.id)===nv)){ toast("Ya existe el inserto "+nv); return; }
+    askConfirm("¿Renombrar el inserto <b>"+escapeHtml(old)+"</b> a <b>"+escapeHtml(nv)+"</b>?<br><span class='hint'>Se actualizan su costeo, ruta, volúmenes de cada mes, producción y facturas asignadas.</span>", ()=>{
+      const j=S.inserts.findIndex(x=>String(x.id)===old); if(j<0) return;
+      renombrarIdInserto(old,nv); S.inserts[j].id=nv; disenoSel=nv; sortInserts();
+      save(); renderKPIs(); renderChain(); renderSection("placas"); toast("Inserto renombrado a "+nv); }, "Renombrar");
   },
   addCliente(){
     const el=document.getElementById("newCliId"); const v=(el?el.value:"").trim();
