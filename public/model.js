@@ -58,6 +58,14 @@ function ensureEscenarios(){
 
 /* --- Costeo de placas por inserto --- */
 function esBloqueMat(nombre){ return /\bBUN\b/i.test(String(nombre||"")); }
+// Catálogo de placas en orden de menor a mayor: nombre (orden natural: #1.2 < #1.7 < #2) y luego grosor
+const _colCat=new Intl.Collator("es",{numeric:true,sensitivity:"base"});
+function ordenarCatalogo(){
+  if(!Array.isArray(S.catalogo)) return;
+  const base=m=>{ const n=String(m.nombre||"").trim(); const i=n.lastIndexOf(" - "); return i>0?n.slice(0,i):n; };
+  const nuevo=m=>/^NUEVO material/i.test(String(m.nombre||""));
+  S.catalogo.sort((a,b)=>(nuevo(b)-nuevo(a))||_colCat.compare(base(a),base(b))||((num(a.grosor)||0)-(num(b.grosor)||0))||_colCat.compare(String(a.nombre||""),String(b.nombre||"")));
+}
 function catFind(nombre){return (S.catalogo||[]).find(m=>m.nombre===nombre);}
 function ensureDiseno(ins){
   if(!ins.diseno) ins.diseno={materiales:[{},{},{}],piezas:[]};
@@ -887,6 +895,7 @@ function ensureClientes(){
   ensureFacturas(); ensureProduccion(); ensureCompras(); ensureCotizador();
   if(S.moParams){ const d=NOM_DEF(); Object.keys(d).forEach(k=>{ if(S.moParams[k]==null) S.moParams[k]=d[k]; }); if(S.moParams.capturaNeto==null) S.moParams.capturaNeto=true; }
   if(!Array.isArray(S.clientes)) S.clientes=[];
+  ordenarCatalogo();
   // normalizar material de pieza guardado como texto ("1","2","3") a número
   (S.inserts||[]).forEach(i=>{ const pz=i&&i.diseno&&i.diseno.piezas; if(Array.isArray(pz)) pz.forEach(p=>{ if(p&&typeof p.mat==="string"){ const n=Number(p.mat); p.mat=(Number.isFinite(n)&&n>=1&&n<=3)?n:1; } }); });
   // migrar clientes capturados antes en perInsert
@@ -974,7 +983,7 @@ function secDiseno(R){
   const ins=S.inserts[idx]; ensureDiseno(ins);
   const dz=disenoCalc(ins)||{mats:ins.diseno.materiales.map(matEff),piezas:[],totalUSD:0};
   const it=R.integral.find(x=>String(x.ins.id)===String(disenoSel))||{};
-  const catNames=(S.catalogo||[]).map(m=>m.nombre);
+  ordenarCatalogo(); const catNames=(S.catalogo||[]).map(m=>m.nombre);
   const insOpts=(cliVista==="(todos)"?S.inserts:delCli).map(x=>`<option ${String(x.id)===String(disenoSel)?'selected':''}>${escapeHtml(String(x.id))}</option>`).join("");
 
   const matRows=[0,1,2].map(k=>{
