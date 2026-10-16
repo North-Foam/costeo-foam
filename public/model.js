@@ -1017,10 +1017,10 @@ function secDiseno(R){
     <td>${inp(`catalogo.${k}.costo`)}</td>
     <td><button class="del" data-click="delMaterial(${k})">✕</button></td></tr>`).join("");
 
-  return head("Costeo de placas — optimización de corte","INSERTO (hoja individual del Excel)",
-    "Aquí capturas lo que antes vivía en la hoja de cada inserto: las placas de foam (hasta 3 materiales), las piezas (base, laterales, tapa…) con sus medidas y cantidad, y el aprovechamiento por placa. El costo del material resultante alimenta automáticamente el <b>Costeo mensual</b>. Las medidas aceptan <b>fracciones</b> (ej. <b>17 3/4</b>, <b>3/8</b>) o decimales. Piezas por placa = máximo entre las dos orientaciones; puedes forzar el valor real de tu corte optimizado.")
-  +`<div style="display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap;margin-bottom:14px">
-    <div style="flex:1 1 520px;min-width:0">
+  return `<div style="display:flex;gap:24px;align-items:flex-end;flex-wrap:wrap;margin-bottom:14px">
+    <div style="flex:1 1 560px;min-width:0">
+      ${head("Costeo de placas — optimización de corte","INSERTO (hoja individual del Excel)",
+    "Aquí capturas lo que antes vivía en la hoja de cada inserto: las placas de foam (hasta 3 materiales), las piezas (base, laterales, tapa…) con sus medidas y cantidad, y el aprovechamiento por placa. El costo del material resultante alimenta automáticamente el <b>Costeo mensual</b>. Las medidas aceptan <b>fracciones</b> (ej. <b>17 3/4</b>, <b>3/8</b>) o decimales. Piezas por placa = máximo entre las dos orientaciones; puedes forzar el valor real de tu corte optimizado.")}
       <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
         ${clienteSelector("setCliDiagrama")}
         <div class="exsel" style="display:inline-flex"><span>Inserto</span>
