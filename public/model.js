@@ -960,7 +960,7 @@ function secDiseno(R){
   if(delCli.length&&!delCli.some(x=>String(x.id)===String(disenoSel))) disenoSel=String(delCli[0].id);
   if(cliVista!=="(todos)"&&!delCli.length) return head("Costeo de placas — optimización de corte","INSERTO","")
     +`<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:10px">${clienteSelector("setCliDiagrama")}<span class="hint">0 insertos de ${escapeHtml(cliVista)}</span></div>
-    <div class="note">El cliente <b>${escapeHtml(cliVista)}</b> aún no tiene insertos. Escribe el número del inserto y oprime <b>+ Crear inserto</b>; quedará asignado a este cliente. También puedes elegir <b>(todos)</b> y mover un inserto existente con “Mover este inserto a”.</div>
+    <div class="note">El cliente <b>${escapeHtml(cliVista)}</b> aún no tiene insertos. Escribe el número del inserto y oprime <b>+ Crear inserto</b>; quedará asignado a este cliente. También puedes elegir <b>(todos)</b> y mover un inserto existente desde el recuadro “Cambiar cliente del inserto”.</div>
     <div style="display:flex;gap:6px;align-items:center;margin-top:10px">
       <input id="newInsId" class="f txt" style="width:170px" placeholder="Número del nuevo inserto" data-enter="addNamedInsert()">
       <button class="btn primary" data-click="addNamedInsert()">+ Crear inserto</button></div>`;
@@ -1013,28 +1013,37 @@ function secDiseno(R){
 
   return head("Costeo de placas — optimización de corte","INSERTO (hoja individual del Excel)",
     "Aquí capturas lo que antes vivía en la hoja de cada inserto: las placas de foam (hasta 3 materiales), las piezas (base, laterales, tapa…) con sus medidas y cantidad, y el aprovechamiento por placa. El costo del material resultante alimenta automáticamente el <b>Costeo mensual</b>. Las medidas aceptan <b>fracciones</b> (ej. <b>17 3/4</b>, <b>3/8</b>) o decimales. Piezas por placa = máximo entre las dos orientaciones; puedes forzar el valor real de tu corte optimizado.")
-  +`<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
-      ${clienteSelector("setCliDiagrama")}
-      <div class="exsel" style="display:inline-flex"><span>Inserto</span>
-        <select data-change="setDiseno(this.value)">${insOpts}</select></div>
-      <span class="hint">${cliVista==="(todos)"?S.inserts.length+" insertos de todos los clientes":delCli.length+" inserto(s) de "+escapeHtml(cliVista)}</span>
+  +`<div style="display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap;margin-bottom:14px">
+    <div style="flex:1 1 520px;min-width:0">
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+        ${clienteSelector("setCliDiagrama")}
+        <div class="exsel" style="display:inline-flex"><span>Inserto</span>
+          <select data-change="setDiseno(this.value)">${insOpts}</select></div>
+        <span class="hint">${cliVista==="(todos)"?S.inserts.length+" insertos de todos los clientes":delCli.length+" inserto(s) de "+escapeHtml(cliVista)}</span>
+      </div>
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <div style="display:flex;gap:6px;align-items:center">
+          <input id="newInsId" class="f txt" style="width:170px" placeholder="Número del nuevo inserto" data-enter="addNamedInsert()">
+          <button class="btn primary" data-click="addNamedInsert()">+ Crear inserto</button>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <input id="newCliId" class="f txt" style="width:150px" placeholder="Nuevo cliente" data-enter="addCliente()">
+          <button class="btn" data-click="addCliente()">+ Cliente</button>
+        </div>
+        <button class="btn" style="border-color:var(--red);color:var(--red)" data-click="delInsert(${idx})">Eliminar inserto</button>
+      </div>
     </div>
-    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
-      <div class="exsel" style="display:inline-flex"><span>Mover este inserto a</span>
+    <div style="flex:0 0 auto;margin-left:auto;border:1px dashed var(--line,#c9d3dc);border-radius:10px;padding:10px 14px;background:rgba(127,127,127,.05);max-width:320px">
+      <div style="font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;opacity:.75;margin-bottom:4px">Cambiar cliente del inserto</div>
+      <div class="hint" style="margin-bottom:8px">Inserto <b>${escapeHtml(String(ins.id))}</b> · pertenece a <b>${escapeHtml(clienteLabel(ins))}</b></div>
+      <div class="exsel" style="display:inline-flex"><span>Mover a</span>
         <select data-change="setClienteInserto(${idx},this.value)">
           <option value="">Sin cliente</option>
           ${clientesLista().map(c=>`<option ${clienteDe(ins)&&cliKey(clienteDe(ins))===cliKey(c)?'selected':''}>${escapeHtml(c)}</option>`).join("")}
         </select></div>
-      <div style="display:flex;gap:6px;align-items:center">
-        <input id="newCliId" class="f txt" style="width:150px" placeholder="Nuevo cliente" data-enter="addCliente()">
-        <button class="btn" data-click="addCliente()">+ Cliente</button>
-      </div>
-      <button class="btn" style="border-color:var(--red);color:var(--red)" data-click="delInsert(${idx})">Eliminar inserto</button>
-      <div style="display:flex;gap:6px;align-items:center">
-        <input id="newInsId" class="f txt" style="width:170px" placeholder="Número del nuevo inserto" data-enter="addNamedInsert()">
-        <button class="btn primary" data-click="addNamedInsert()">+ Crear inserto</button>
-      </div>
+      <div class="hint" style="margin-top:6px">Pide confirmación antes de mover.</div>
     </div>
+  </div>
 
     <div class="card"><h3>Placas / materiales del inserto (hasta 3)</h3><div class="body"><div class="scroll" style="border:0;box-shadow:none">
       <table><thead><tr><th class="l">#</th><th class="l">Material (catálogo o manual)</th><th>Precio placa $</th><th>Largo in</th><th>Ancho in</th><th>Grosor in</th><th>Área placa</th></tr></thead>
