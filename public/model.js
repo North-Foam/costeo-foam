@@ -1999,7 +1999,7 @@ document.addEventListener("change",e=>{
 });
 function secPrecios(R){
   const k=periodoKey(); const X=computeProduccion(R,k);
-  const lista=R.integral.filter(pasaCliente).slice().sort((a,b)=>(b.contribHora==null?-1e15:b.contribHora)-(a.contribHora==null?-1e15:a.contribHora));
+  const lista=R.integral.filter(pasaCliente).slice().sort((a,b)=>_colCat.compare(String(a.ins.id),String(b.ins.id)));
   const S0=R.integral.map(situacionPrecio);
   const nR=S0.filter(s=>s.l==="r").length, nEq=R.integral.filter(i=>i.precioEq!=null&&i.precioClMXN>0&&i.precioClMXN>=i.precioMin&&i.precioClMXN<i.precioEq).length;
   const conCV=R.integral.filter(i=>i.precioClMXN>0&&i.precioMin!=null);
@@ -2034,7 +2034,7 @@ function secPrecios(R){
       <th class="l">Inserto</th><th class="l">Cliente</th><th>Precio<br>cliente u.</th><th>Costo<br>variable u.</th><th>Contribución<br>u.</th><th>Contrib.<br>%</th>
       <th>Min-persona<br>por pza</th><th>Contribución<br>por hora</th><th>Precio piso</th><th>Precio<br>equilibrio</th><th>Precio<br>objetivo</th><th class="l">Situación</th>
     </tr></thead><tbody>${rows}</tbody></table></div>
-    <div class="note" style="margin-top:6px">Ordenado de mayor a menor <b>contribución por hora-persona</b> (contribución por pieza ÷ minutos estándar de la Ruta). Precios en pesos con su equivalente en dólares abajo. Pasa el cursor sobre el costo variable para ver su desglose. La mano de obra, la renta y los demás gastos se consideran fijos: no cambian por aceptar un pedido más.</div>
+    <div class="note" style="margin-top:6px">Ordenado por <b>número de parte</b> de menor a mayor. La contribución por hora-persona = contribución por pieza ÷ minutos estándar de la Ruta. Precios en pesos con su equivalente en dólares abajo. Pasa el cursor sobre el costo variable para ver su desglose. La mano de obra, la renta y los demás gastos se consideran fijos: no cambian por aceptar un pedido más.</div>
     <div class="grid2" style="margin-top:16px">
       <div class="card"><h3>Simulador de precio</h3><div class="pad">
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
